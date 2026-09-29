@@ -169,3 +169,7 @@ on peut poser une icône n'importe où, même loin après les autres.
 « Trier : Récents / A → Z » range la vue courante sans trous (dossiers en tête). Supprimer un dossier
 ne supprime aucun jeu : ils reprennent sa case et les suivantes. Le plateau, le zoom, le thème, le son et
 le dernier jeu sélectionné et le plein écran sont mémorisés.
+
+## Licence
+
+MIT — voir [LICENSE](LICENSE).

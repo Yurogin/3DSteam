@@ -71,16 +71,6 @@ export default function App() {
   const downloads = useDownloads(rescan);
   const [padMouse, setPadMouse] = useState(() => load("padMouse", true));
   useEffect(() => save("padMouse", padMouse), [padMouse]);
-  const [autoConfirm, setAutoConfirm] = useState(() => load("autoConfirmInstall", false));
-  useEffect(() => save("autoConfirmInstall", autoConfirm), [autoConfirm]);
-  /**
-   * Titre de la boîte d'installation de Steam, appris à la première installation. Tant qu'il est
-   * inconnu, rien n'est cliqué : la fenêtre pourrait être un contrat de licence.
-   */
-  const [dialogTitle, setDialogTitle] = useState<string | null>(() => load("installDialogTitle", null));
-  useEffect(() => save("installDialogTitle", dialogTitle), [dialogTitle]);
-  /** Titre observé, pas encore acquis : il ne vaut que si le téléchargement part vraiment. */
-  const learning = useRef<{ title: string; appid: number } | null>(null);
   const { theme, setTheme, cycle: cycleTheme } = themes;
   const { t, tn, lang, locale, setLang } = useI18n();
 
@@ -237,24 +227,16 @@ export default function App() {
   );
 
   /**
-   * Installation : Steam impose sa boîte de dialogue, elle ne répond pas au clavier et son
-   * interface n'expose rien à l'accessibilité. Avec le réglage, elle est validée par un clic
-   * synthétique côté Rust ; sinon on demande à l'utilisateur de le faire.
+   * Installation : Steam impose sa boîte de dialogue, qui ne répond pas au clavier et n'expose
+   * rien à l'accessibilité. On ne la valide donc pas à la place de l'utilisateur — ce serait
+   * accepter un contrat de licence pour lui —, on lui donne de quoi le faire à la manette.
    */
   const install = useCallback(
     async (game: Game) => {
       sound.select();
-      showToast(t("installStarting", { name: game.name }));
+      showToast(padMouse ? t("installPad", { name: game.name }) : t("installConfirm"));
       try {
-        const outcome = await installGame(game.appid, autoConfirm, dialogTitle, padMouse);
-        if (outcome.kind === "unknown") {
-          // On n'a pas touché à cette fenêtre. Si le téléchargement part quand même, c'est que
-          // c'était bien la boîte d'installation : on retiendra son titre pour la prochaine fois.
-          learning.current = { title: outcome.title, appid: game.appid };
-          showToast(t("installNeedsYou"));
-        } else if (outcome.kind !== "confirmed") {
-          showToast(t("installConfirm"));
-        }
+        await installGame(game.appid, padMouse);
         // Un tout petit jeu peut être installé avant le premier sondage : la disparition du
         // téléchargement passerait alors inaperçue. Ce scan différé rattrape ce cas ; les
         // téléchargements plus longs restent couverts par `useDownloads`.
@@ -264,19 +246,8 @@ export default function App() {
         showToast(String(e));
       }
     },
-    [autoConfirm, dialogTitle, padMouse, rescan, showToast, t],
+    [padMouse, rescan, showToast, t],
   );
-
-  // Le téléchargement a démarré, ou le jeu est apparu installé : la fenêtre observée était bien
-  // la boîte d'installation.
-  useEffect(() => {
-    const seen = learning.current;
-    if (!seen) return;
-    if (downloads.has(seen.appid) || byId.has(seen.appid)) {
-      learning.current = null;
-      setDialogTitle(seen.title);
-    }
-  }, [downloads, byId]);
 
   const enterFolder = useCallback((id: string) => {
     sound.zoom(1);
@@ -496,9 +467,7 @@ export default function App() {
     if (fullscreen) void toggleFullscreen();
     cursorStyle.setStyle(DEFAULT_CURSOR);
     iconStyle.setStyle(DEFAULT_ICON_STYLE);
-    setAutoConfirm(false);
     setPadMouse(true);
-    setDialogTitle(null);
     sound.select();
     showToast(t("prefsReset"));
   }, [setTheme, setLang, fullscreen, toggleFullscreen, cursorStyle, iconStyle, showToast, t]);
@@ -960,8 +929,6 @@ export default function App() {
             onToggleFullscreen={() => void toggleFullscreen()}
             cursorStyle={cursorStyle.style}
             onCursorStyle={cursorStyle.setStyle}
-            autoConfirm={autoConfirm}
-            onToggleAutoConfirm={() => setAutoConfirm((on) => !on)}
             padMouse={padMouse}
             onTogglePadMouse={() => setPadMouse((on) => !on)}
             onResetLayout={resetLayout}

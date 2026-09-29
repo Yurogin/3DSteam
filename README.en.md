@@ -70,22 +70,21 @@ takes over, and as a last resort a coloured tile with the game's initials.
 Launching goes through `steam://run/<appid>`: Steam handles updates, cloud saves and DRM.
 
 Installing goes through `steam://install/<appid>`, which opens Steam's own dialog. There is no way
-to start a download without it: the client holds the licences. That dialog answers no keyboard
-input — no Tab, no Enter, no focus ring appears — and its interface exposes nothing to UI
-Automation (three descendants, zero buttons). The only thing that confirms it is a click.
-`dialog.rs` can synthesise one (⚙ → General, off by default), under three conditions: the window
-must have appeared **after** the request, must hold focus, and must carry the title learnt during
-an earlier install. That last one matters most: Steam may open something else — a licence
-agreement, a warning — and **accepting an agreement is not the launcher's to do**. Any unexpected
-window is left alone, in front, and 3DSteam says so. The first install stays manual: the title is
-only kept if a download actually starts behind it.
-3DSteam's window then takes focus back on its own.
+to start a download without it: the client holds the licences. And that dialog answers no key (no
+Tab, no Enter, no focus ring) while exposing nothing to UI Automation either: three descendants,
+zero buttons. A click is the only thing that confirms it.
 
-In front of any other window, **the controller drives the cursor** (`padmouse.rs`, on by
-default): the sticks move it, ⓐ clicks. Steam becomes usable with a pad without Big Picture, and
-above all it is the user who answers — licence agreement, disk choice, warning. The controller is
-read through XInput rather than the browser API, which receives nothing once the page loses focus.
-Driving stops as soon as the window closes, if the user goes elsewhere, or after five minutes.
+Confirming it on the user's behalf would be a bad idea: in front of a licence agreement, that
+means accepting it for them. So the problem is turned around. While a Steam window is open, **the
+controller drives the cursor** (`padmouse.rs`, on by default): left stick moves it, right stick
+scrolls -- an agreement has to be read through before its button becomes active --, a trigger
+slows it down to aim at a checkbox, A clicks. The cursor is moved to the centre of the window when
+it opens, and nowhere else: the choice stays entirely the user's.
+
+Steam thus becomes usable with a pad without Big Picture, whatever window it opens and whatever
+its layout. The controller is read through XInput rather than the browser API, which receives
+nothing once the page loses focus. Driving stops when the window closes, if the user goes
+elsewhere, or after five minutes; 3DSteam then takes focus back.
 
 Progress is read from the manifests (`BytesDownloaded`, `BytesToDownload`, `StateFlags`), re-read
 every 1.2 s during a download and every 5 s otherwise: a bar on the tile, a percentage on the top
@@ -96,7 +95,6 @@ screen, and an automatic switch to "playable" when it ends.
 | `src-tauri/src/vdf.rs` | Valve KeyValues parser (+ tests) |
 | `src-tauri/src/steam.rs` | Steam detection, libraries, manifests, artwork, catalogue, launching |
 | `src-tauri/src/appinfo.rs` | Binary `appinfo.vdf` cache: names, types, icon hashes (+ tests) |
-| `src-tauri/src/dialog.rs` | Confirming Steam's install dialog (Windows) |
 | `src-tauri/src/padmouse.rs` | Controller drives the cursor in front of a Steam window (XInput) |
 | `src-tauri/src/icons.rs` | Largest image in an `.ico`, real icon sizes (+ tests) |
 | `src-tauri/src/cache.rs` | Reading / writing `games_cache.json` |
@@ -136,7 +134,7 @@ The ⚙ button (or `P`, or Select on a controller) opens the settings:
   (like the theme) and lives in `src/index.css`, one shadow variable and one animation variable per
   style.
 - **Language** — French or English (dates and times follow it).
-- **General** — sounds and volume, fullscreen, auto-confirming Steam's dialog, icons, cursor.
+- **General** — sounds and volume, fullscreen, controller in Steam windows, icons, cursor.
 - **Data** — reset the layout, the preferences, clear the game cache, or wipe everything (each one
   asks for confirmation).
 

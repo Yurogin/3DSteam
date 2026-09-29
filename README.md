@@ -72,22 +72,21 @@ Le lancement passe par `steam://run/<appid>` : Steam s'occupe des mises à jour,
 
 L'installation passe par `steam://install/<appid>`, qui ouvre la boîte de dialogue de Steam. Il
 n'existe pas de moyen de déclencher un téléchargement sans elle : le client détient les licences.
-Or cette boîte ne répond pas au clavier — ni Tab, ni Entrée, aucun anneau de focus n'apparaît — et
-son interface n'expose rien à l'UI Automation (trois descendants, zéro bouton). Le seul geste qui
-la valide est un clic. `dialog.rs` sait le synthétiser (⚙ → Général, désactivé par défaut), sous
-trois conditions : la fenêtre doit être apparue **après** la demande, avoir le focus, et porter le
-titre appris lors d'une installation précédente. Ce dernier point est le plus important : Steam
-peut ouvrir autre chose — un contrat de licence, un avertissement — et **accepter un contrat n'est
-pas au lanceur de le faire**. Toute fenêtre inattendue est donc laissée telle quelle, au premier
-plan, et 3DSteam le signale. La première installation reste manuelle : le titre n'est retenu que
-si le téléchargement démarre vraiment derrière. La fenêtre de 3DSteam reprend ensuite la main d'elle-même.
+Et cette boîte ne répond à aucune touche — ni Tab, ni Entrée, aucun anneau de focus — tout en
+n'exposant rien à l'UI Automation : trois descendants, zéro bouton. Elle ne se valide qu'au clic.
 
-Devant toute autre fenêtre, **la manette pilote le curseur** (`padmouse.rs`, activé par
-défaut) : les sticks le déplacent, ⓐ clique. Steam est alors utilisable au pad sans Big Picture,
-et surtout c'est l'utilisateur qui répond — contrat de licence, choix du disque, avertissement.
-La manette est lue en XInput et non par l'API du navigateur, qui ne reçoit plus rien dès que la
-page perd le focus. Le pilotage s'arrête dès que la fenêtre se referme, si l'utilisateur passe
-ailleurs, ou au bout de cinq minutes.
+La valider à la place de l'utilisateur serait une mauvaise idée : devant un contrat de licence, ce
+serait l'accepter pour lui. On prend donc le problème à l'envers. Tant qu'une fenêtre de Steam est
+ouverte, **la manette pilote le curseur** (`padmouse.rs`, activé par défaut) : stick gauche pour le
+déplacer, stick droit pour faire défiler — un contrat doit être parcouru avant que son bouton
+s'active —, gâchette pour ralentir et viser une case à cocher, Ⓐ pour cliquer. Le curseur est amené
+au centre de la fenêtre à son ouverture, et nulle part ailleurs : le choix reste entier.
+
+Steam devient ainsi utilisable à la manette sans Big Picture, quelle que soit la fenêtre qu'il
+ouvre et quelle que soit sa disposition. La manette est lue en XInput et non par l'API du
+navigateur, qui ne reçoit plus rien dès que la page perd le focus. Le pilotage s'arrête quand la
+fenêtre se ferme, si l'utilisateur passe ailleurs, ou au bout de cinq minutes ; 3DSteam reprend
+alors la main.
 
 La progression se lit dans les manifestes (`BytesDownloaded`, `BytesToDownload`, `StateFlags`),
 relus toutes les 1,2 s pendant un téléchargement et toutes les 5 s sinon : barre sur la tuile,
@@ -98,7 +97,6 @@ pourcentage dans l'écran du haut, et passage automatique à « jouable » à la
 | `src-tauri/src/vdf.rs` | Parseur KeyValues de Valve (+ tests) |
 | `src-tauri/src/steam.rs` | Détection de Steam, bibliothèques, manifestes, visuels, catalogue, lancement |
 | `src-tauri/src/appinfo.rs` | Cache binaire `appinfo.vdf` : noms, types, empreintes d'icônes (+ tests) |
-| `src-tauri/src/dialog.rs` | Validation de la boîte d'installation de Steam (Windows) |
 | `src-tauri/src/padmouse.rs` | La manette pilote le curseur devant une fenêtre Steam (XInput) |
 | `src-tauri/src/icons.rs` | Plus grande image d'un `.ico`, taille réelle des icônes (+ tests) |
 | `src-tauri/src/cache.rs` | Lecture / écriture de `games_cache.json` |
@@ -139,7 +137,7 @@ Le bouton ⚙ (ou `P`, ou Select à la manette) ouvre les paramètres :
   `data-cursor` sur `<html>` (comme le thème) et se règle dans `src/index.css`, une variable
   d'ombre et une d'animation par style.
 - **Langue** — français ou anglais (dates et heures suivent la langue).
-- **Général** — sons et volume, plein écran, validation automatique de la boîte de Steam, icônes, curseur.
+- **Général** — sons et volume, plein écran, manette dans les fenêtres Steam, icônes, curseur.
 - **Données** — réinitialiser la disposition, les préférences, vider le cache des jeux, ou tout
   remettre à zéro (chaque action demande une confirmation).
 

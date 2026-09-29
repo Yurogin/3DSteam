@@ -1,8 +1,6 @@
 mod appinfo;
 mod battery;
 mod cache;
-#[cfg(windows)]
-mod dialog;
 mod icons;
 #[cfg(windows)]
 mod padmouse;
@@ -60,55 +58,36 @@ fn downloads() -> Vec<steam::Download> {
     steam_root().map(steam::downloads).unwrap_or_default()
 }
 
-/// Ouvre la boîte d'installation de Steam. Avec `autoConfirm`, elle est validée par un clic
-/// synthétique (voir `dialog.rs`) et la fenêtre reprend ensuite le focus. Renvoie vrai si le clic
-/// a été envoyé ; sinon c'est à l'utilisateur de valider.
+/// Ouvre la boîte d'installation de Steam. Avec `padMouse`, la manette pilote le curseur tant que
+/// la fenêtre est ouverte (voir `padmouse.rs`), puis 3DSteam reprend le focus. Renvoie vrai si une
+/// fenêtre a bien été prise en charge.
 #[tauri::command]
-async fn install_game(
-    app: AppHandle,
-    appid: u32,
-    auto_confirm: bool,
-    dialog_title: Option<String>,
-    pad_mouse: bool,
-) -> Result<serde_json::Value, String> {
+async fn install_game(app: AppHandle, appid: u32, pad_mouse: bool) -> Result<bool, String> {
     #[cfg(windows)]
     {
-        // Relevé avant la demande : seule une fenêtre apparue ensuite sera regardée.
-        let watching = auto_confirm || pad_mouse;
-        let before = if watching { dialog::windows() } else { Vec::new() };
+        // Relevé avant la demande : seule une fenêtre apparue ensuite sera prise en charge.
+        let before = if pad_mouse { padmouse::windows() } else { Vec::new() };
         steam::install(appid)?;
-        if !watching {
-            return Ok(serde_json::json!({ "kind": "skipped" }));
+        if !pad_mouse {
+            return Ok(false);
         }
-        let outcome = tauri::async_runtime::spawn_blocking(move || {
-            // La boîte connue se valide toute seule ; devant n'importe quelle autre fenêtre — un
-            // contrat de licence, un avertissement — la manette prend le relais et c'est
-            // l'utilisateur qui répond.
-            let outcome = if auto_confirm {
-                dialog::confirm(&before, dialog_title.as_deref(), Duration::from_secs(20))
-            } else {
-                dialog::Outcome::Nothing
-            };
-            let handled = matches!(outcome, dialog::Outcome::Confirmed);
-            if !handled && pad_mouse {
-                padmouse::drive(&before, Duration::from_secs(20), Duration::from_secs(300));
-            }
-            outcome
+        let handled = tauri::async_runtime::spawn_blocking(move || {
+            padmouse::drive(&before, Duration::from_secs(20), Duration::from_secs(300))
         })
         .await
         .map_err(|e| e.to_string())?;
-        // Le focus revient une fois Steam sorti de l'écran : la manette a déjà rendu la main
-        // quand sa fenêtre s'est refermée.
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.set_focus();
+        // Steam n'est plus à l'écran : on reprend la main.
+        if handled {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
         }
-        serde_json::to_value(outcome).map_err(|e| e.to_string())
+        Ok(handled)
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, auto_confirm, dialog_title, pad_mouse);
-        steam::install(appid)?;
-        Ok(serde_json::json!({ "kind": "skipped" }))
+        let _ = (app, pad_mouse);
+        steam::install(appid).map(|_| false)
     }
 }
 

@@ -1,3 +1,5 @@
+***Français** · [English](README.en.md)*
+
 # 3DSteam
 
 Launcher Steam ultra-léger (Tauri v2 + React), façon menu HOME de la 3DS / Wii U :

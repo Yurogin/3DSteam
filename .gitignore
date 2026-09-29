@@ -1,0 +1,11 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+app-icon.png
+*.log
+*.tsbuildinfo
+
+# Binaires produits par les builds, laisses a la racine
+/threedsteam.exe
+/uninstall.exe

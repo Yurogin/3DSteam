@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr" data-theme="blue3ds">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3DSteam</title>
+    <script>
+      // Applique le thème et le style du curseur avant le premier rendu, pour éviter un flash.
+      document.documentElement.dataset.cursor = "soft";
+      try {
+        var t = JSON.parse(localStorage.getItem("3dsteam:theme") || "null");
+        if (t) document.documentElement.dataset.theme = t;
+        var c = JSON.parse(localStorage.getItem("3dsteam:cursorStyle") || "null");
+        if (c) document.documentElement.dataset.cursor = c;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

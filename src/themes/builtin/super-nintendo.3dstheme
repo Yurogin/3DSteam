@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "id": "super-nintendo",
+  "name": { "fr": "Super Nintendo", "en": "Super Nintendo" },
+  "dark": false,
+  "colors": {
+    "background": "#d8d7e1",
+    "background2": "#b9b8c8",
+    "surface": "#f0eff5",
+    "text": "#312f3d",
+    "accent": "#5a4bb8"
+  },
+  "pattern": { "type": "snes", "color": "#5a4bb8", "opacity": 0.55, "size": 30 },
+  "shape": { "tileRadius": 12, "panelRadius": 18, "panelStyle": "border" }
+}

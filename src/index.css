@@ -1,0 +1,165 @@
+@import "tailwindcss";
+@import "@fontsource-variable/nunito";
+
+@import "./themes/themes.css";
+
+/* ─── Pont variables CSS → utilitaires Tailwind (bg-accent, text-muted, shadow-soft…) ──── */
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --font-sans: "Nunito Variable", "Nunito", ui-rounded, system-ui, sans-serif;
+  --shadow-soft: 0 10px 30px -12px var(--shadow-color), 0 2px 6px -2px var(--shadow-color);
+  --shadow-pop: 0 18px 40px -14px var(--shadow-color), 0 4px 10px -4px var(--shadow-color);
+  --radius-tile: var(--tile-radius);
+  --radius-panel: var(--panel-radius);
+}
+
+/* ─── Base ────────────────────────────────────────────────────────────────────────────── */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* Fond du thème : couleur, motif et dégradé (voir themes/themes.css). */
+  background-color: var(--bg);
+  background-image: var(--bg-image);
+  background-size: var(--bg-size);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+/* Dans la couche « base » pour que les utilitaires (outline-none…) puissent la surcharger. */
+@layer base {
+  :focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Navigation à la manette / aux flèches : le focus posé par script doit toujours se voir. */
+  .nav-mode :focus {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+}
+
+/* Barre de défilement discrète et arrondie. */
+.soft-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-soft) transparent;
+}
+
+/* ─── Curseur : comment se signale l'icône sélectionnée (⚙ → Général) ─────────────────── */
+
+/*
+ * Chaque style se résume à une ombre et, éventuellement, une animation. Les deux passent par des
+ * variables, si bien que le même jeu de règles sert au curseur réel (attribut `data-cursor` sur
+ * <html>) et aux aperçus des paramètres (un `data-cursor` local suffit : les variables héritent).
+ */
+@keyframes selected-soft {
+  0%, 100% {
+    box-shadow:
+      0 6px 20px -6px color-mix(in srgb, var(--accent) 60%, transparent),
+      0 0 22px 1px color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 10px 28px -6px color-mix(in srgb, var(--accent) 75%, transparent),
+      0 0 34px 5px color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+}
+
+@keyframes selected-glow {
+  0%, 100% { box-shadow: 0 0 0 4px var(--accent), 0 0 0 8px color-mix(in srgb, var(--accent) 25%, transparent); }
+  50% { box-shadow: 0 0 0 4px var(--accent), 0 0 0 12px color-mix(in srgb, var(--accent) 8%, transparent); }
+}
+
+/* Halo doux : une lueur diffuse, sans arête nette. Défaut, et repli si l'attribut manque. */
+:root,
+[data-cursor="soft"] {
+  --cursor-shadow: 0 6px 20px -6px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 22px 1px color-mix(in srgb, var(--accent) 28%, transparent);
+  --cursor-anim: selected-soft 1.8s ease-in-out infinite;
+}
+
+/* Halo pulsé : le contour franc d'origine. */
+[data-cursor="glow"] {
+  --cursor-shadow: 0 0 0 4px var(--accent), 0 0 0 8px color-mix(in srgb, var(--accent) 25%, transparent);
+  --cursor-anim: selected-glow 1.6s ease-in-out infinite;
+}
+
+/* Contour fin : le même trait, en discret et sans pulsation. */
+[data-cursor="ring"] {
+  --cursor-shadow: 0 0 0 2px var(--accent);
+  --cursor-anim: none;
+}
+
+/* Surélevé : aucun contour, l'icône se détache par son ombre portée. */
+[data-cursor="lift"] {
+  --cursor-shadow: 0 16px 28px -10px rgb(0 0 0 / 0.38), 0 6px 12px -6px rgb(0 0 0 / 0.25);
+  --cursor-anim: none;
+}
+
+/* Aucun : seuls l'agrandissement et le nom en couleur signalent la sélection. */
+[data-cursor="none"] {
+  --cursor-shadow: none;
+  --cursor-anim: none;
+}
+
+/* Hors `@layer` : l'emporte sur les utilitaires Tailwind (`shadow-soft`, `hover:shadow-pop`). */
+.tile-selected,
+.cursor-demo {
+  box-shadow: var(--cursor-shadow);
+  animation: var(--cursor-anim);
+}
+
+/* Reflet qui balaye la tuile au survol / à la sélection. */
+@keyframes shine {
+  from { transform: translateX(-120%) skewX(-18deg); }
+  to { transform: translateX(220%) skewX(-18deg); }
+}
+.shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  transform: translateX(-120%) skewX(-18deg);
+  pointer-events: none;
+}
+.shine:hover::after,
+.tile-selected.shine::after {
+  animation: shine 0.9s ease-out;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .shine::after {
+    animation: none !important;
+  }
+  /* Sans pulsation, les deux halos gardent leur version fixe : le curseur reste visible. */
+  :root,
+  [data-cursor="soft"],
+  [data-cursor="glow"] {
+    --cursor-anim: none;
+  }
+}

@@ -38,8 +38,9 @@ then the default paths), reads `libraryfolders.vdf`, parses every `appmanifest_*
 the cache atomically.
 
 Each slot shows the game's square icon, the one from the Steam library list: the client's `.ico`
-(`steam/games/<hash>.ico`, found through `appcache/appinfo.vdf`) when it exists, otherwise the small
-cached icon. The banner at the top is the Steam header image (460×215).
+(`steam/games/<hash>.ico`) when it exists, otherwise the small cached icon. The hash comes from
+`common/clienticon`, read out of the binary `appcache/appinfo.vdf` cache by `appinfo.rs`. The banner
+at the top is the Steam header image (460×215).
 
 An `.ico` is a directory: it often holds eight or ten images, from 16 to 512 px, and it is then the
 browser's decoder that picks which one to show. Rather than depend on that choice, `icons.rs` reads
@@ -61,6 +62,7 @@ Launching goes through `steam://run/<appid>`: Steam handles updates, cloud saves
 | --- | --- |
 | `src-tauri/src/vdf.rs` | Valve KeyValues parser (+ tests) |
 | `src-tauri/src/steam.rs` | Steam detection, libraries, manifests, artwork, launching |
+| `src-tauri/src/appinfo.rs` | Binary `appinfo.vdf` cache: names, types, icon hashes (+ tests) |
 | `src-tauri/src/icons.rs` | Largest image in an `.ico`, real icon sizes (+ tests) |
 | `src-tauri/src/cache.rs` | Reading / writing `games_cache.json` |
 | `src-tauri/src/lib.rs` | Tauri commands `load_cache`, `scan_library`, `launch_game` |

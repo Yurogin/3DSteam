@@ -1,3 +1,4 @@
+mod appinfo;
 mod battery;
 mod cache;
 mod icons;

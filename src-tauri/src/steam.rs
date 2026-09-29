@@ -222,75 +222,25 @@ fn is_sha1(s: &str) -> bool {
 }
 
 /// Associe chaque jeu à son icône `.ico` (`<Steam>/steam/games/<sha1>.ico`, celle des raccourcis).
-///
-/// L'empreinte `clienticon` n'est écrite que dans `appcache/appinfo.vdf` (binaire). Plutôt que de
-/// décoder tout le format, on parcourt les entrées (`appid`, `taille`, données) et on cherche dans
-/// celles des jeux installés une chaîne de 40 caractères hexadécimaux qui correspond à un `.ico`
-/// présent sur le disque.
-fn client_icons(steam_root: &Path, appids: &HashSet<u32>) -> HashMap<u32, PathBuf> {
-    let mut icons = HashMap::new();
+/// L'empreinte vient de `common/clienticon` dans `appinfo.vdf` (voir `appinfo.rs`) ; on ne garde
+/// que celles dont le fichier existe vraiment.
+fn client_icons(
+    steam_root: &Path,
+    apps: &HashMap<u32, crate::appinfo::AppInfo>,
+    wanted: &HashSet<u32>,
+) -> HashMap<u32, PathBuf> {
     let games_dir = steam_root.join("steam").join("games");
-    let available: HashSet<String> = match fs::read_dir(&games_dir) {
-        Ok(entries) => entries
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                let hash = name.strip_suffix(".ico")?;
-                is_sha1(hash).then(|| hash.to_ascii_lowercase())
-            })
-            .collect(),
-        Err(_) => return icons,
-    };
-    if available.is_empty() {
-        return icons;
-    }
-    let Ok(data) = fs::read(steam_root.join("appcache").join("appinfo.vdf")) else {
-        return icons;
-    };
-    let read_u32 = |at: usize| data.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-
-    // En-tête : magic + univers, puis (v29 et plus) l'offset de la table de chaînes sur 8 octets.
-    let mut offset = match read_u32(0) {
-        Some(0x0756_4429) | Some(0x0756_442A) => 16,
-        Some(0x0756_4427) | Some(0x0756_4428) => 8,
-        _ => return icons,
-    };
-    while let (Some(appid), Some(size)) = (read_u32(offset), read_u32(offset + 4)) {
-        if appid == 0 {
-            break;
-        }
-        let start = offset + 8;
-        let end = start.saturating_add(size as usize).min(data.len());
-        if appids.contains(&appid) {
-            if let Some(hash) = find_known_hash(&data[start..end], &available) {
-                icons.insert(appid, games_dir.join(format!("{hash}.ico")));
+    wanted
+        .iter()
+        .filter_map(|appid| {
+            let hash = apps.get(appid)?.client_icon.as_deref()?;
+            if !is_sha1(hash) {
+                return None;
             }
-        }
-        if end <= offset {
-            break;
-        }
-        offset = end;
-    }
-    icons
-}
-
-/// Première chaîne de 40 caractères hexadécimaux terminée par un octet nul, qui figure dans `known`.
-fn find_known_hash(bytes: &[u8], known: &HashSet<String>) -> Option<String> {
-    let mut run = 0usize;
-    for (i, &b) in bytes.iter().enumerate() {
-        if b.is_ascii_hexdigit() {
-            run += 1;
-        } else {
-            if b == 0 && run == 40 {
-                let hash = String::from_utf8_lossy(&bytes[i - 40..i]).to_ascii_lowercase();
-                if known.contains(&hash) {
-                    return Some(hash);
-                }
-            }
-            run = 0;
-        }
-    }
-    None
+            let path = games_dir.join(format!("{}.ico", hash.to_ascii_lowercase()));
+            path.is_file().then(|| (*appid, path))
+        })
+        .collect()
 }
 
 /// Scan complet : toutes les bibliothèques, tous les `appmanifest_*.acf`.
@@ -323,7 +273,7 @@ pub fn scan(steam_root: &Path) -> Vec<Game> {
     }
 
     let appids: HashSet<u32> = games.iter().map(|g| g.appid).collect();
-    let icons = client_icons(steam_root, &appids);
+    let icons = client_icons(steam_root, &crate::appinfo::load(steam_root), &appids);
     for game in &mut games {
         if let Some(ico) = icons.get(&game.appid) {
             game.art.icon = Some(ico.to_string_lossy().into_owned());

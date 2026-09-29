@@ -38,8 +38,9 @@ grille s'affiche tout de suite. `scan_library` tourne ensuite sur un thread à p
 réécrit le cache de façon atomique.
 
 Chaque case affiche l'icône carrée du jeu, celle de la liste de la bibliothèque Steam : le `.ico`
-du client (`steam/games/<empreinte>.ico`, retrouvé via `appcache/appinfo.vdf`) si elle existe,
-sinon la petite icône du cache. La bannière du haut est l'en-tête Steam (460×215).
+du client (`steam/games/<empreinte>.ico`) si elle existe,
+sinon la petite icône du cache. L'empreinte vient de `common/clienticon`, lu dans le cache
+binaire `appcache/appinfo.vdf` par `appinfo.rs`. La bannière du haut est l'en-tête Steam (460×215).
 
 Un `.ico` est un annuaire : il contient souvent huit ou dix images, de 16 à 512 px, et c'est alors
 le décodeur du navigateur qui choisit laquelle afficher. Plutôt que de dépendre de ce choix,
@@ -61,6 +62,7 @@ Le lancement passe par `steam://run/<appid>` : Steam s'occupe des mises à jour,
 | --- | --- |
 | `src-tauri/src/vdf.rs` | Parseur KeyValues de Valve (+ tests) |
 | `src-tauri/src/steam.rs` | Détection de Steam, bibliothèques, manifestes, visuels, lancement |
+| `src-tauri/src/appinfo.rs` | Cache binaire `appinfo.vdf` : noms, types, empreintes d'icônes (+ tests) |
 | `src-tauri/src/icons.rs` | Plus grande image d'un `.ico`, taille réelle des icônes (+ tests) |
 | `src-tauri/src/cache.rs` | Lecture / écriture de `games_cache.json` |
 | `src-tauri/src/lib.rs` | Commandes Tauri `load_cache`, `scan_library`, `launch_game` |

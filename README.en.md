@@ -52,6 +52,17 @@ IHDR, since the directory caps out at 256 px.
 Plenty of Steam icons are no larger than 32 px, for slots five times that. There is no one right way
 to handle this, hence a setting (⚙ → General → Icons): see below.
 
+The toolbar switches between **Installed** and **All**. "All" adds the games the client knows about
+without them being on disk: `appinfo.vdf` gives their name and type,
+`userdata/<account>/config/localconfig.vdf` says which ones this account has already seen, and the
+account used is the most recent one in `loginusers.vdf`. This is not an ownership list — it holds
+demos and free games that were tried, and it misses owned games never launched — but it is local,
+instant, and needs no API key. On the test library: 72 installed and 306 more.
+
+That view is flat, like search: it leaves the board alone, allows neither folders nor drag and drop,
+and closes with Esc / ⓑ. Games that are not installed appear dimmed, their artwork comes from the
+CDN, and they cannot be launched.
+
 Cover art comes from Steam's local cache (`appcache/librarycache`, served over `asset://`; only that
 folder, `steam/games` and the derived icons are allowed). When an image is missing the Steam CDN
 takes over, and as a last resort a coloured tile with the game's initials.
@@ -61,7 +72,7 @@ Launching goes through `steam://run/<appid>`: Steam handles updates, cloud saves
 | File | Role |
 | --- | --- |
 | `src-tauri/src/vdf.rs` | Valve KeyValues parser (+ tests) |
-| `src-tauri/src/steam.rs` | Steam detection, libraries, manifests, artwork, launching |
+| `src-tauri/src/steam.rs` | Steam detection, libraries, manifests, artwork, catalogue, launching |
 | `src-tauri/src/appinfo.rs` | Binary `appinfo.vdf` cache: names, types, icon hashes (+ tests) |
 | `src-tauri/src/icons.rs` | Largest image in an `.ico`, real icon sizes (+ tests) |
 | `src-tauri/src/cache.rs` | Reading / writing `games_cache.json` |

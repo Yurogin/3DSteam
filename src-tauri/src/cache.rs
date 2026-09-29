@@ -6,11 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::steam::Game;
+use crate::steam::{CatalogGame, Game, Scan};
 
 pub const CACHE_FILE: &str = "games_cache.json";
 /// Incrémenter si la structure de `Game` change : l'ancien cache est alors ignoré.
-pub const CACHE_VERSION: u32 = 2;
+pub const CACHE_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,10 +20,13 @@ pub struct Library {
     pub scanned_at: u64,
     pub steam_root: Option<String>,
     pub games: Vec<Game>,
+    /// Jeux connus du client mais pas installés (vue « Tout »). Absent des anciens caches.
+    #[serde(default)]
+    pub catalog: Vec<CatalogGame>,
 }
 
 impl Library {
-    pub fn new(steam_root: Option<&Path>, games: Vec<Game>) -> Self {
+    pub fn new(steam_root: Option<&Path>, scan: Scan) -> Self {
         let scanned_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -32,7 +35,8 @@ impl Library {
             version: CACHE_VERSION,
             scanned_at,
             steam_root: steam_root.map(|p| p.to_string_lossy().into_owned()),
-            games,
+            games: scan.games,
+            catalog: scan.catalog,
         }
     }
 }

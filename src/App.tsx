@@ -62,7 +62,7 @@ type Editor = { mode: "new"; index: number; draft: Folder } | { mode: "edit"; id
 const normalize = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
 export default function App() {
-  const { games, scannedAt, loaded, scanning, error, rescan } = useLibrary();
+  const { games, catalog, scannedAt, loaded, scanning, error, rescan } = useLibrary();
   const themes = useTheme();
   const cursorStyle = useCursorStyle();
   const iconStyle = useIconStyle();
@@ -84,6 +84,8 @@ export default function App() {
   const presets = usePresets();
   const modalOpen = editor != null || settingsOpen || themeEditor != null;
   const [query, setQuery] = useState("");
+  /** Vue « Tout » : les jeux installés et ceux que le client connaît, à plat. */
+  const [showAll, setShowAll] = useState(false);
   const [soundOn, setSoundOn] = useState(sound.enabled);
   const [launchingId, setLaunchingId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -107,9 +109,11 @@ export default function App() {
 
   useEffect(() => save("rows", rows), [rows]);
   useEffect(() => save("board.v2", board), [board]);
+  // La vue « Tout » a son propre curseur : il ne doit pas écraser celui du plateau.
   useEffect(() => {
-    if (view == null) save("cursor", cursor);
-  }, [cursor, view]);
+    if (view == null && !showAll) save("cursor", cursor);
+  }, [cursor, view, showAll]);
+  useEffect(() => setCursor(showAll ? 0 : load("cursor", 0)), [showAll]);
 
   // Les jeux nouvellement installés prennent place après le dernier élément du plateau.
   useEffect(() => {
@@ -123,8 +127,16 @@ export default function App() {
   }, [view, openFolder]);
 
   const searching = query.trim() !== "";
-  useEffect(() => setHeld(null), [view, searching]);
+  /** Vue à plat : ni plateau, ni glisser-déposer, ni dossiers. */
+  const browsing = searching || showAll;
+  useEffect(() => setHeld(null), [view, browsing]);
   const byId = useMemo(() => new Map(games.map((g) => [g.appid, g])), [games]);
+
+  /** Vue « Tout » : installés et catalogue mêlés, du plus récemment joué au plus ancien. */
+  const allGames = useMemo(
+    () => [...games, ...catalog].sort((a, b) => b.lastPlayed - a.lastPlayed || a.name.localeCompare(b.name)),
+    [games, catalog],
+  );
 
   const gamesOf = useCallback(
     (slots: Slots) =>
@@ -137,10 +149,12 @@ export default function App() {
 
   /** Contenu des cases affichées : le plateau (avec ses trous) ou les résultats de recherche. */
   const items = useMemo<ViewItem[]>(() => {
+    const pool = showAll ? allGames : games;
     if (searching) {
       const q = normalize(query.trim());
-      return games.filter((g) => normalize(g.name).includes(q)).map((game) => ({ kind: "game", game }));
+      return pool.filter((g) => normalize(g.name).includes(q)).map((game) => ({ kind: "game", game }));
     }
+    if (showAll) return pool.map((game) => ({ kind: "game", game }));
     // Un jeu désinstallé laisse une case vide (et la retrouve s'il est réinstallé).
     const resolved = viewSlots(board, view).map((c): ViewItem => {
       if (c?.kind === "game") {
@@ -156,7 +170,7 @@ export default function App() {
     const itemCount = resolved.filter((c) => c != null).length;
     const length = boardLength(resolved.length, itemCount, rows, columns, view == null ? BOARD_SLOTS : FOLDER_SLOTS);
     return Array.from({ length }, (_, i) => resolved[i] ?? null);
-  }, [games, byId, board, view, query, searching, rows, columns, gamesOf]);
+  }, [games, allGames, showAll, byId, board, view, query, searching, rows, columns, gamesOf]);
 
   const cursorIndex = Math.min(Math.max(0, cursor), Math.max(0, items.length - 1));
   const current = items[cursorIndex] ?? null;
@@ -165,7 +179,7 @@ export default function App() {
   const cursorRef = useRef(cursorIndex);
   cursorRef.current = cursorIndex;
 
-  const gameCount = searching ? items.length : view == null ? games.length : gamesOf(openFolder?.slots ?? []).length;
+  const gameCount = browsing ? items.length : view == null ? games.length : gamesOf(openFolder?.slots ?? []).length;
 
   // ─── Actions ─────────────────────────────────────────────────────────────────────────
 
@@ -190,6 +204,8 @@ export default function App() {
   const launch = useCallback(
     async (game: Game) => {
       if (launchingId != null) return;
+      // Un jeu du catalogue n'est pas sur le disque : l'installation viendra plus tard.
+      if (!game.installed) return void showToast(t("notInstalledToast", { name: game.name }));
       setLaunchingId(game.appid);
       sound.launch();
       try {
@@ -272,10 +288,10 @@ export default function App() {
 
   const grab = useCallback(() => {
     if (heldRef.current != null) return dropHeld();
-    if (searching || itemsRef.current[cursorRef.current] == null) return;
+    if (browsing || itemsRef.current[cursorRef.current] == null) return;
     sound.zoom(1);
     setHeld(cursorRef.current);
-  }, [searching, dropHeld]);
+  }, [browsing, dropHeld]);
 
   const moveOut = useCallback(
     (index: number) => {
@@ -290,7 +306,7 @@ export default function App() {
   );
 
   const startNewFolder = useCallback(() => {
-    if (view != null || searching || itemsRef.current[cursorRef.current] != null) return;
+    if (view != null || browsing || itemsRef.current[cursorRef.current] != null) return;
     sound.select();
     const used = Object.keys(board.folders).length;
     setEditor({
@@ -298,7 +314,7 @@ export default function App() {
       index: cursorRef.current,
       draft: { id: "draft", name: t("defaultFolderName"), color: FOLDER_COLORS[used % FOLDER_COLORS.length], slots: [] },
     });
-  }, [view, searching, board.folders, t]);
+  }, [view, browsing, board.folders, t]);
 
   const saveEditor = useCallback(
     (name: string, color: string) => {
@@ -490,8 +506,9 @@ export default function App() {
 
   const back = useCallback(() => {
     if (searching) setQuery("");
+    else if (showAll) setShowAll(false);
     else leaveFolder();
-  }, [searching, leaveFolder]);
+  }, [searching, showAll, leaveFolder]);
 
   // ─── Clavier & manette ───────────────────────────────────────────────────────────────
 
@@ -713,7 +730,7 @@ export default function App() {
             itemKey={itemKey}
             folderName={openFolder?.name ?? null}
             launching={launchingId != null}
-            canCreateFolder={view == null && !searching && games.length > 0}
+            canCreateFolder={view == null && !browsing && games.length > 0}
             onLaunch={() => current?.kind === "game" && void launch(current.game)}
             onOpenFolder={() => current?.kind === "folder" && enterFolder(current.folder.id)}
             onEditFolder={() => current?.kind === "folder" && setEditor({ mode: "edit", id: current.folder.id })}
@@ -765,7 +782,7 @@ export default function App() {
               <span className="font-bold text-muted">{status}</span>
             </p>
             <div className="ml-auto flex items-center gap-1 text-sm font-bold text-muted">
-              {view == null && !searching && (
+              {view == null && !browsing && (
                 <button
                   type="button"
                   onMouseEnter={() => sound.hover()}
@@ -777,23 +794,50 @@ export default function App() {
                   {t("addFolder")}
                 </button>
               )}
-              <span className="mr-1">{t("sort")}</span>
-              {(
-                [
-                  ["recent", t("sortRecent")],
-                  ["alpha", t("sortAlpha")],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onMouseEnter={() => sound.hover()}
-                  onClick={() => sortBy(mode)}
-                  className="rounded-full px-3 py-1 transition-colors hover:bg-accent-soft hover:text-accent-strong"
-                >
-                  {label}
-                </button>
-              ))}
+              {view == null && (
+                <div className="mr-2 flex items-center gap-1 rounded-full bg-surface-2 p-1">
+                  {([[false, t("viewInstalled")], [true, t("viewAll")]] as const).map(([mode, label]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={showAll === mode}
+                      onMouseEnter={() => sound.hover()}
+                      onClick={() => {
+                        if (showAll === mode) return;
+                        sound.select();
+                        setShowAll(mode);
+                      }}
+                      className={`rounded-full px-3 py-1 transition-colors ${
+                        showAll === mode ? "bg-accent text-on-accent" : "hover:text-accent-strong"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Le tri réécrit le plateau : il n'a pas de sens dans une vue à plat. */}
+              {!browsing && (
+                <>
+                  <span className="mr-1">{t("sort")}</span>
+                  {(
+                    [
+                      ["recent", t("sortRecent")],
+                      ["alpha", t("sortAlpha")],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onMouseEnter={() => sound.hover()}
+                      onClick={() => sortBy(mode)}
+                      className="rounded-full px-3 py-1 transition-colors hover:bg-accent-soft hover:text-accent-strong"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
             <ZoomControls level={MAX_ROWS - rows} levels={MAX_ROWS - MIN_ROWS + 1} onZoom={changeZoom} />
           </div>
@@ -812,7 +856,7 @@ export default function App() {
                 gap={GAP}
                 labelHeight={labelHeight}
                 cursor={cursorIndex}
-                editable={!searching}
+                editable={!browsing}
                 onCursor={pointAt}
                 onActivate={activateTile}
                 onMove={moveItem}

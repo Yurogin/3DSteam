@@ -131,7 +131,11 @@ function GameScreen({ game, folderName, launching, onLaunch, onMoveOut }: Props 
           <div className="flex flex-wrap gap-2">
             <Chip>{formatLastPlayed(game.lastPlayed, t, locale)}</Chip>
             {game.sizeOnDisk > 0 && <Chip>{formatSize(game.sizeOnDisk, t, locale)}</Chip>}
-            <Chip title={game.libraryPath}>{driveOf(game.libraryPath, t)}</Chip>
+            {game.installed ? (
+              <Chip title={game.libraryPath}>{driveOf(game.libraryPath, t)}</Chip>
+            ) : (
+              <Chip>{t("notInstalled")}</Chip>
+            )}
             {folderName && <Chip>{t("folderChip", { name: folderName })}</Chip>}
           </div>
         </>
@@ -158,11 +162,13 @@ function GameScreen({ game, folderName, launching, onLaunch, onMoveOut }: Props 
       }
       right={
         <>
-          <PrimaryButton onClick={onLaunch} disabled={launching} pulse={launching}>
+          <PrimaryButton onClick={onLaunch} disabled={launching || !game.installed} pulse={launching}>
             <PlayIcon width={22} height={22} />
-            {launching ? t("launching") : t("launch")}
+            {!game.installed ? t("notInstalled") : launching ? t("launching") : t("launch")}
           </PrimaryButton>
-          <span className="pr-2 text-xs font-bold text-muted">{t("launchHint")}</span>
+          <span className="pr-2 text-xs font-bold text-muted">
+            {game.installed ? t("launchHint") : t("notInstalledHint")}
+          </span>
           {folderName && <SecondaryButton onClick={onMoveOut}>{t("moveOut")}</SecondaryButton>}
         </>
       }

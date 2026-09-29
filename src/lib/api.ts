@@ -78,6 +78,7 @@ const demo = (appid: number, name: string, daysAgo: number, gb: number): Game =>
   libraryPath: "C:\Program Files (x86)\Steam",
   sizeOnDisk: gb * 1024 ** 3,
   lastPlayed: daysAgo < 0 ? 0 : now - daysAgo * DAY,
+  installed: true,
   lastUpdated: now - 30 * DAY,
   art: { capsule: null, hero: null, logo: null, header: null, icon: null },
 });

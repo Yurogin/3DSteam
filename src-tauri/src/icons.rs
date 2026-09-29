@@ -268,7 +268,7 @@ mod tests {
         let Some(root) = crate::steam::find_steam_root() else {
             return println!("Steam introuvable");
         };
-        let mut games = crate::steam::scan(&root);
+        let mut games = crate::steam::scan(&root).games;
         let dir = std::env::temp_dir().join("3dsteam-icons-test");
         let _ = fs::remove_dir_all(&dir);
         refine(&mut games, &dir);

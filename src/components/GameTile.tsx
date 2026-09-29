@@ -31,7 +31,8 @@ export const GameTile = memo(function GameTile({ game, index, size, selected, li
       onClick={() => onSelect(index)}
       onDoubleClick={() => onLaunch(index)}
       initial={false}
-      animate={{ opacity: lifted ? 0 : 1, scale: selected ? 1.07 : 1, y: selected ? -3 : 0 }}
+      // Un jeu du catalogue s'affiche en retrait : il est là, mais pas jouable.
+      animate={{ opacity: lifted ? 0 : game.installed ? 1 : 0.45, scale: selected ? 1.07 : 1, y: selected ? -3 : 0 }}
       whileHover={{ scale: selected ? 1.1 : 1.08, y: -5 }}
       whileTap={{ scale: 0.92 }}
       aria-label={game.name}

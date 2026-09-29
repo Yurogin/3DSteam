@@ -57,10 +57,10 @@ async fn scan_library(app: AppHandle) -> Result<Library, String> {
         let root = steam::find_steam_root()
             .ok_or_else(|| "Installation de Steam introuvable".to_string())?;
         allow_steam_artwork(&handle, &root);
-        let mut games = steam::scan(&root);
+        let mut scan = steam::scan(&root);
         // Chaque icône est ramenée à sa plus grande image avant d'atteindre le front.
-        icons::refine(&mut games, &dir);
-        let library = Library::new(Some(root.as_path()), games);
+        icons::refine(&mut scan.games, &dir);
+        let library = Library::new(Some(root.as_path()), scan);
         if let Err(e) = cache::save(&dir, &library) {
             eprintln!("[3dsteam] cache non sauvegardé : {e}");
         }

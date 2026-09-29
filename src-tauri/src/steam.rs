@@ -42,6 +42,24 @@ pub struct Game {
     pub art: GameArt,
 }
 
+/// Un jeu que le client connaît mais qui n'est pas installé : juste de quoi l'afficher.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogGame {
+    pub appid: u32,
+    pub name: String,
+    pub last_played: u64,
+}
+
+/// Résultat d'un scan : ce qui est installé, et ce que le client connaît en plus.
+pub struct Scan {
+    pub games: Vec<Game>,
+    pub catalog: Vec<CatalogGame>,
+}
+
+/// Écart entre un SteamID64 et le numéro de dossier dans `userdata`.
+const STEAM_ID_BASE: u64 = 76_561_197_960_265_728;
+
 /// Outils Steam installés comme des « jeux » mais qu'on ne veut pas voir dans la grille.
 const HIDDEN_APPIDS: &[u32] = &[228980, 1070560, 1391110, 1628350, 1826330, 2180100];
 const HIDDEN_PREFIXES: &[&str] = &[
@@ -238,13 +256,106 @@ fn client_icons(
                 return None;
             }
             let path = games_dir.join(format!("{}.ico", hash.to_ascii_lowercase()));
-            path.is_file().then(|| (*appid, path))
+            path.is_file().then_some((*appid, path))
         })
         .collect()
 }
 
+/// Dossier `userdata` du compte le plus récemment utilisé, d'après `loginusers.vdf`.
+fn active_user_dir(steam_root: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(steam_root.join("config").join("loginusers.vdf")).ok()?;
+    let doc = vdf::parse(&text).ok()?;
+    // Le tri porte sur le tuple : `MostRecent` d'abord, puis l'horodatage le plus grand.
+    let (_, _, id64) = doc
+        .get("users")?
+        .entries()
+        .iter()
+        .filter_map(|(id, user)| {
+            let id64: u64 = id.trim().parse().ok()?;
+            let recent = user.get_str("MostRecent").is_some_and(|v| v == "1");
+            Some((recent, user.get_u64("Timestamp").unwrap_or(0), id64))
+        })
+        .max()?;
+    let dir = steam_root.join("userdata").join(id64.checked_sub(STEAM_ID_BASE)?.to_string());
+    dir.is_dir().then_some(dir)
+}
+
+/// Repli : le dossier `userdata` dont la configuration a été écrite le plus récemment.
+fn newest_user_dir(steam_root: &Path) -> Option<PathBuf> {
+    fs::read_dir(steam_root.join("userdata"))
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let dir = entry.path();
+            let time = dir.join("config").join("localconfig.vdf").metadata().ok()?.modified().ok()?;
+            Some((time, dir))
+        })
+        .max_by_key(|(time, _)| *time)
+        .map(|(_, dir)| dir)
+}
+
+/// Applications que le client a vues pour ce compte, avec leur dernière session.
+///
+/// `localconfig.vdf` n'est pas une liste de possession : il recense ce qui a été lancé ou
+/// configuré. Il inclut donc des démos et des jeux gratuits essayés, et il manque les jeux
+/// possédés jamais ouverts. C'est approximatif, mais local, instantané et sans clé d'API.
+fn seen_apps(steam_root: &Path) -> HashMap<u32, u64> {
+    let mut out = HashMap::new();
+    let Some(dir) = active_user_dir(steam_root).or_else(|| newest_user_dir(steam_root)) else {
+        return out;
+    };
+    let Ok(text) = fs::read_to_string(dir.join("config").join("localconfig.vdf")) else {
+        return out;
+    };
+    let Ok(doc) = vdf::parse(&text) else {
+        return out;
+    };
+    let apps = doc
+        .get("UserLocalConfigStore")
+        .and_then(|v| v.get("Software"))
+        .and_then(|v| v.get("Valve"))
+        .and_then(|v| v.get("Steam"))
+        .and_then(|v| v.get("apps"));
+    let Some(apps) = apps else { return out };
+    for (id, app) in apps.entries() {
+        if let Ok(appid) = id.trim().parse::<u32>() {
+            out.insert(appid, app.get_u64("LastPlayed").unwrap_or(0));
+        }
+    }
+    out
+}
+
+/// Les jeux connus du client mais absents du disque, triés comme la grille principale.
+fn catalog(
+    apps: &HashMap<u32, crate::appinfo::AppInfo>,
+    seen: &HashMap<u32, u64>,
+    installed: &HashSet<u32>,
+) -> Vec<CatalogGame> {
+    let mut list: Vec<CatalogGame> = seen
+        .iter()
+        .filter(|(appid, _)| !installed.contains(appid) && !HIDDEN_APPIDS.contains(appid))
+        .filter_map(|(&appid, &last_played)| {
+            let info = apps.get(&appid)?;
+            // Uniquement des jeux : ni DLC, ni outils, ni configurations, ni démos.
+            if !info.kind.eq_ignore_ascii_case("game") || info.name.is_empty() {
+                return None;
+            }
+            if HIDDEN_PREFIXES.iter().any(|prefix| info.name.starts_with(prefix)) {
+                return None;
+            }
+            Some(CatalogGame { appid, name: info.name.clone(), last_played })
+        })
+        .collect();
+    list.sort_by(|a, b| {
+        b.last_played
+            .cmp(&a.last_played)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    list
+}
+
 /// Scan complet : toutes les bibliothèques, tous les `appmanifest_*.acf`.
-pub fn scan(steam_root: &Path) -> Vec<Game> {
+pub fn scan(steam_root: &Path) -> Scan {
     let librarycache = steam_root.join("appcache").join("librarycache");
     let mut seen = HashSet::new();
     let mut games = Vec::new();
@@ -273,7 +384,8 @@ pub fn scan(steam_root: &Path) -> Vec<Game> {
     }
 
     let appids: HashSet<u32> = games.iter().map(|g| g.appid).collect();
-    let icons = client_icons(steam_root, &crate::appinfo::load(steam_root), &appids);
+    let apps = crate::appinfo::load(steam_root);
+    let icons = client_icons(steam_root, &apps, &appids);
     for game in &mut games {
         if let Some(ico) = icons.get(&game.appid) {
             game.art.icon = Some(ico.to_string_lossy().into_owned());
@@ -285,7 +397,8 @@ pub fn scan(steam_root: &Path) -> Vec<Game> {
             .cmp(&a.last_played)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
-    games
+    let catalog = catalog(&apps, &seen_apps(steam_root), &appids);
+    Scan { games, catalog }
 }
 
 /// Lance un jeu via le protocole `steam://run/<appid>` (Steam gère mises à jour et DRM).
@@ -324,7 +437,8 @@ mod tests {
         for lib in super::library_folders(&root) {
             println!("Bibliothèque : {}", lib.display());
         }
-        for g in super::scan(&root) {
+        let scan = super::scan(&root);
+        for g in &scan.games {
             let a = &g.art;
             let flag = |o: &Option<String>| if o.is_some() { "✓" } else { "·" };
             println!(
@@ -337,6 +451,10 @@ mod tests {
                 flag(&a.header),
                 a.icon.as_deref().and_then(|p| p.rsplit(['\\', '/']).next()).unwrap_or("·")
             );
+        }
+        println!("{} installés, {} au catalogue", scan.games.len(), scan.catalog.len());
+        for c in scan.catalog.iter().take(10) {
+            println!("   {:>8}  {}", c.appid, c.name);
         }
     }
 }

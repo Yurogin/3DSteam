@@ -31,11 +31,8 @@ const MAX_DEPTH: u32 = 32;
 /// Ce qu'on retient du bloc `common` d'une application.
 #[derive(Debug, Default, Clone)]
 pub struct AppInfo {
-    /// `name` et `kind` ne servent pas encore : ils sont la matière de la bibliothèque complète.
-    #[allow(dead_code)]
     pub name: String,
     /// `Game`, `DLC`, `Tool`, `Demo`, `Config`…
-    #[allow(dead_code)]
     pub kind: String,
     /// Empreinte du `.ico` des raccourcis, dans `<Steam>/steam/games/`.
     pub client_icon: Option<String>,

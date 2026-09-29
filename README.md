@@ -52,6 +52,18 @@ recopiant ses octets tels quels. Il relève au passage la taille réelle de chaq
 Beaucoup d'icônes Steam ne dépassent pas 32 px, pour des cases qui en font cinq fois plus. Il n'y
 a pas de bon traitement universel, d'où un réglage (⚙ → Général → Icônes) : voir plus bas.
 
+La barre d'outils bascule entre **Installés** et **Tout**. « Tout » ajoute les jeux que le client
+connaît sans qu'ils soient sur le disque : `appinfo.vdf` donne leur nom et leur type,
+`userdata/<compte>/config/localconfig.vdf` dit lesquels ce compte a déjà vus, et le compte retenu
+est le plus récent de `loginusers.vdf`. Ce n'est pas une liste de possession — elle contient des
+démos et des jeux gratuits essayés, et il lui manque les jeux possédés jamais lancés — mais elle
+est locale, instantanée et ne demande aucune clé d'API. Sur la bibliothèque de test : 72 installés
+et 306 de plus.
+
+Cette vue est à plat, comme la recherche : elle ne touche pas au plateau, ne permet ni dossier ni
+glisser-déposer, et se referme avec Échap / ⓑ. Les jeux non installés s'y affichent en retrait,
+leurs visuels viennent du CDN, et ils ne sont pas lançables.
+
 Les jaquettes viennent du cache local de Steam (`appcache/librarycache`, servi via `asset://` ; seuls ce
 dossier, `steam/games` et les icônes dérivées sont autorisés). Si une image manque, le CDN Steam prend le relais, et en dernier recours une tuile
 colorée avec les initiales du jeu.
@@ -61,7 +73,7 @@ Le lancement passe par `steam://run/<appid>` : Steam s'occupe des mises à jour,
 | Fichier | Rôle |
 | --- | --- |
 | `src-tauri/src/vdf.rs` | Parseur KeyValues de Valve (+ tests) |
-| `src-tauri/src/steam.rs` | Détection de Steam, bibliothèques, manifestes, visuels, lancement |
+| `src-tauri/src/steam.rs` | Détection de Steam, bibliothèques, manifestes, visuels, catalogue, lancement |
 | `src-tauri/src/appinfo.rs` | Cache binaire `appinfo.vdf` : noms, types, empreintes d'icônes (+ tests) |
 | `src-tauri/src/icons.rs` | Plus grande image d'un `.ico`, taille réelle des icônes (+ tests) |
 | `src-tauri/src/cache.rs` | Lecture / écriture de `games_cache.json` |

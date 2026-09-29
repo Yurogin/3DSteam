@@ -11,7 +11,8 @@ export interface GameArt {
   iconSize?: number | null;
 }
 
-export interface Game {
+/** Ce que renvoie le scan : un jeu présent sur le disque. */
+export interface InstalledGame {
   appid: number;
   name: string;
   installDir: string;
@@ -22,9 +23,26 @@ export interface Game {
   art: GameArt;
 }
 
+/** Un jeu que le client Steam connaît mais qui n'est pas installé. */
+export interface CatalogGame {
+  appid: number;
+  name: string;
+  lastPlayed: number;
+}
+
+/**
+ * Un jeu tel que l'interface le manipule. `installed` distingue les deux origines : le scan du
+ * disque, ou le catalogue (vue « Tout »), qui n'a ni taille, ni chemin, ni visuels locaux.
+ */
+export interface Game extends InstalledGame {
+  installed: boolean;
+}
+
 export interface Library {
   version: number;
   scannedAt: number;
   steamRoot: string | null;
-  games: Game[];
+  games: InstalledGame[];
+  /** Absent des caches antérieurs à la vue « Tout ». */
+  catalog?: CatalogGame[];
 }

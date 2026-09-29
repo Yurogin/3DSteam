@@ -71,6 +71,14 @@ export default function App() {
   const downloads = useDownloads(rescan);
   const [autoConfirm, setAutoConfirm] = useState(() => load("autoConfirmInstall", false));
   useEffect(() => save("autoConfirmInstall", autoConfirm), [autoConfirm]);
+  /**
+   * Titre de la boîte d'installation de Steam, appris à la première installation. Tant qu'il est
+   * inconnu, rien n'est cliqué : la fenêtre pourrait être un contrat de licence.
+   */
+  const [dialogTitle, setDialogTitle] = useState<string | null>(() => load("installDialogTitle", null));
+  useEffect(() => save("installDialogTitle", dialogTitle), [dialogTitle]);
+  /** Titre observé, pas encore acquis : il ne vaut que si le téléchargement part vraiment. */
+  const learning = useRef<{ title: string; appid: number } | null>(null);
   const { theme, setTheme, cycle: cycleTheme } = themes;
   const { t, tn, lang, locale, setLang } = useI18n();
 
@@ -236,7 +244,15 @@ export default function App() {
       sound.select();
       showToast(t("installStarting", { name: game.name }));
       try {
-        if (!(await installGame(game.appid, autoConfirm))) showToast(t("installConfirm"));
+        const outcome = await installGame(game.appid, autoConfirm, dialogTitle);
+        if (outcome.kind === "unknown") {
+          // On n'a pas touché à cette fenêtre. Si le téléchargement part quand même, c'est que
+          // c'était bien la boîte d'installation : on retiendra son titre pour la prochaine fois.
+          learning.current = { title: outcome.title, appid: game.appid };
+          showToast(t("installNeedsYou"));
+        } else if (outcome.kind !== "confirmed") {
+          showToast(t("installConfirm"));
+        }
         // Un tout petit jeu peut être installé avant le premier sondage : la disparition du
         // téléchargement passerait alors inaperçue. Ce scan différé rattrape ce cas ; les
         // téléchargements plus longs restent couverts par `useDownloads`.
@@ -246,8 +262,19 @@ export default function App() {
         showToast(String(e));
       }
     },
-    [autoConfirm, rescan, showToast, t],
+    [autoConfirm, dialogTitle, rescan, showToast, t],
   );
+
+  // Le téléchargement a démarré, ou le jeu est apparu installé : la fenêtre observée était bien
+  // la boîte d'installation.
+  useEffect(() => {
+    const seen = learning.current;
+    if (!seen) return;
+    if (downloads.has(seen.appid) || byId.has(seen.appid)) {
+      learning.current = null;
+      setDialogTitle(seen.title);
+    }
+  }, [downloads, byId]);
 
   const enterFolder = useCallback((id: string) => {
     sound.zoom(1);
@@ -468,6 +495,7 @@ export default function App() {
     cursorStyle.setStyle(DEFAULT_CURSOR);
     iconStyle.setStyle(DEFAULT_ICON_STYLE);
     setAutoConfirm(false);
+    setDialogTitle(null);
     sound.select();
     showToast(t("prefsReset"));
   }, [setTheme, setLang, fullscreen, toggleFullscreen, cursorStyle, iconStyle, showToast, t]);

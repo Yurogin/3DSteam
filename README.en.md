@@ -73,8 +73,12 @@ Installing goes through `steam://install/<appid>`, which opens Steam's own dialo
 to start a download without it: the client holds the licences. That dialog answers no keyboard
 input — no Tab, no Enter, no focus ring appears — and its interface exposes nothing to UI
 Automation (three descendants, zero buttons). The only thing that confirms it is a click.
-`dialog.rs` can synthesise one (⚙ → General, off by default), behind two guards: the target window
-must have appeared **after** the request and must hold focus, otherwise nothing is touched.
+`dialog.rs` can synthesise one (⚙ → General, off by default), under three conditions: the window
+must have appeared **after** the request, must hold focus, and must carry the title learnt during
+an earlier install. That last one matters most: Steam may open something else — a licence
+agreement, a warning — and **accepting an agreement is not the launcher's to do**. Any unexpected
+window is left alone, in front, and 3DSteam says so. The first install stays manual: the title is
+only kept if a download actually starts behind it.
 3DSteam's window then takes focus back on its own.
 
 Progress is read from the manifests (`BytesDownloaded`, `BytesToDownload`, `StateFlags`), re-read

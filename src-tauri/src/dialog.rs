@@ -21,8 +21,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     mouse_event, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowRect, IsWindowVisible,
-    SetCursorPos,
+    EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowRect, GetWindowTextW,
+    IsWindowVisible, SetCursorPos,
 };
 
 /// Classe de toutes les fenêtres de Steam, la principale comme ses boîtes.
@@ -46,6 +46,16 @@ unsafe extern "system" fn collect(hwnd: HWND, lparam: LPARAM) -> BOOL {
         }
     }
     TRUE
+}
+
+/// Titre d'une fenêtre.
+fn title(hwnd: isize) -> String {
+    let mut buf = [0u16; 256];
+    let len = unsafe { GetWindowTextW(hwnd as HWND, buf.as_mut_ptr(), buf.len() as i32) };
+    if len <= 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&buf[..len as usize])
 }
 
 /// Les fenêtres de Steam actuellement visibles.
@@ -79,13 +89,29 @@ fn click(x: i32, y: i32) {
     }
 }
 
+/// Ce qu'on a pu faire de la fenêtre apparue.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Outcome {
+    /// La boîte attendue a été reconnue et validée.
+    Confirmed,
+    /// Une fenêtre est apparue, mais ce n'est pas celle qu'on sait valider : on n'y touche pas et
+    /// on rend la main. C'est le cas d'un contrat de licence, par exemple.
+    Unknown { title: String },
+    /// Rien n'est apparu dans le délai imparti.
+    Nothing,
+}
+
 /**
  * Attend la boîte d'installation puis la valide. `before` est la liste des fenêtres de Steam
- * relevée *avant* la demande : seule une fenêtre absente de cette liste sera touchée.
+ * relevée *avant* la demande : seule une fenêtre absente de cette liste est regardée.
  *
- * Renvoie `true` si le clic a bien été envoyé.
+ * `expected` est le titre de la boîte d'installation, appris lors d'une installation précédente.
+ * Sans lui, ou si le titre diffère, **on ne clique pas** : ce pourrait être un contrat de licence
+ * ou un avertissement, et les accepter n'appartient pas au lanceur. L'utilisateur répond lui-même,
+ * et le titre retenu servira la fois suivante.
  */
-pub fn confirm(before: &[isize], timeout: Duration) -> bool {
+pub fn confirm(before: &[isize], expected: Option<&str>, timeout: Duration) -> Outcome {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         let candidate = windows()
@@ -93,6 +119,10 @@ pub fn confirm(before: &[isize], timeout: Duration) -> bool {
             .find(|hwnd| !before.contains(hwnd) && rect(*hwnd).is_some());
 
         if let Some(hwnd) = candidate {
+            let seen = title(hwnd);
+            if expected != Some(seen.as_str()) {
+                return Outcome::Unknown { title: seen };
+            }
             // Deuxième garde-fou : sans le focus, le clic irait à la fenêtre active.
             if unsafe { GetForegroundWindow() } as isize != hwnd {
                 sleep(Duration::from_millis(200));
@@ -101,14 +131,14 @@ pub fn confirm(before: &[isize], timeout: Duration) -> bool {
             // La fenêtre existe avant que Steam n'y dessine ses boutons : cliquer aussitôt tombe
             // dans le vide, ou pire, à côté. On la laisse se poser, puis on revérifie tout.
             sleep(SETTLE);
-            if unsafe { GetForegroundWindow() } as isize != hwnd {
+            if unsafe { GetForegroundWindow() } as isize != hwnd || title(hwnd) != seen {
                 continue;
             }
             let Some(r) = rect(hwnd) else { continue };
             click(r.right - BUTTON_FROM_RIGHT, r.bottom - BUTTON_FROM_BOTTOM);
-            return true;
+            return Outcome::Confirmed;
         }
         sleep(Duration::from_millis(200));
     }
-    false
+    Outcome::Nothing
 }

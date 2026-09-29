@@ -22,14 +22,29 @@ export function scanLibrary(): Promise<Library> {
   );
 }
 
+/** Ce qu'il est advenu de la fenêtre ouverte par Steam. */
+export type InstallOutcome =
+  /** La boîte d'installation a été reconnue et validée. */
+  | { kind: "confirmed" }
+  /** Une fenêtre inattendue est apparue : on n'y a pas touché, à l'utilisateur de répondre. */
+  | { kind: "unknown"; title: string }
+  /** Rien n'est apparu dans le délai. */
+  | { kind: "nothing" }
+  /** La validation automatique est désactivée. */
+  | { kind: "skipped" };
+
 /**
- * Ouvre la boîte d'installation de Steam. `autoConfirm` demande à la valider par un clic
- * synthétique ; la promesse dit si ce clic a bien été envoyé.
+ * Ouvre la boîte d'installation de Steam. `dialogTitle` est le titre retenu d'une installation
+ * précédente : sans lui, rien n'est cliqué (voir `dialog.rs`).
  */
-export function installGame(appid: number, autoConfirm: boolean): Promise<boolean> {
-  if (inTauri) return invoke<boolean>("install_game", { appid, autoConfirm });
+export function installGame(
+  appid: number,
+  autoConfirm: boolean,
+  dialogTitle: string | null,
+): Promise<InstallOutcome> {
+  if (inTauri) return invoke<InstallOutcome>("install_game", { appid, autoConfirm, dialogTitle });
   console.info(`[démo] steam://install/${appid}`);
-  return Promise.resolve(false);
+  return Promise.resolve({ kind: "skipped" });
 }
 
 /** Téléchargements en cours (toujours vide dans le navigateur). */

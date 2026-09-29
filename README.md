@@ -74,9 +74,13 @@ L'installation passe par `steam://install/<appid>`, qui ouvre la boîte de dialo
 n'existe pas de moyen de déclencher un téléchargement sans elle : le client détient les licences.
 Or cette boîte ne répond pas au clavier — ni Tab, ni Entrée, aucun anneau de focus n'apparaît — et
 son interface n'expose rien à l'UI Automation (trois descendants, zéro bouton). Le seul geste qui
-la valide est un clic. `dialog.rs` sait le synthétiser (⚙ → Général, désactivé par défaut), avec
-deux garde-fous : la fenêtre visée doit être apparue **après** la demande et avoir le focus, sinon
-on ne touche à rien. La fenêtre de 3DSteam reprend ensuite la main d'elle-même.
+la valide est un clic. `dialog.rs` sait le synthétiser (⚙ → Général, désactivé par défaut), sous
+trois conditions : la fenêtre doit être apparue **après** la demande, avoir le focus, et porter le
+titre appris lors d'une installation précédente. Ce dernier point est le plus important : Steam
+peut ouvrir autre chose — un contrat de licence, un avertissement — et **accepter un contrat n'est
+pas au lanceur de le faire**. Toute fenêtre inattendue est donc laissée telle quelle, au premier
+plan, et 3DSteam le signale. La première installation reste manuelle : le titre n'est retenu que
+si le téléchargement démarre vraiment derrière. La fenêtre de 3DSteam reprend ensuite la main d'elle-même.
 
 La progression se lit dans les manifestes (`BytesDownloaded`, `BytesToDownload`, `StateFlags`),
 relus toutes les 1,2 s pendant un téléchargement et toutes les 5 s sinon : barre sur la tuile,

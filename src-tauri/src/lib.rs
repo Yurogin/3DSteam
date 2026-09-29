@@ -62,30 +62,39 @@ fn downloads() -> Vec<steam::Download> {
 /// synthétique (voir `dialog.rs`) et la fenêtre reprend ensuite le focus. Renvoie vrai si le clic
 /// a été envoyé ; sinon c'est à l'utilisateur de valider.
 #[tauri::command]
-async fn install_game(app: AppHandle, appid: u32, auto_confirm: bool) -> Result<bool, String> {
+async fn install_game(
+    app: AppHandle,
+    appid: u32,
+    auto_confirm: bool,
+    dialog_title: Option<String>,
+) -> Result<serde_json::Value, String> {
     #[cfg(windows)]
     {
-        // Releé avant la demande : seule une fenêtre apparue ensuite pourra être cliquée.
+        // Relevé avant la demande : seule une fenêtre apparue ensuite sera regardée.
         let before = if auto_confirm { dialog::windows() } else { Vec::new() };
         steam::install(appid)?;
         if !auto_confirm {
-            return Ok(false);
+            return Ok(serde_json::json!({ "kind": "skipped" }));
         }
-        let clicked =
-            tauri::async_runtime::spawn_blocking(move || dialog::confirm(&before, Duration::from_secs(15)))
-                .await
-                .map_err(|e| e.to_string())?;
-        if clicked {
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            dialog::confirm(&before, dialog_title.as_deref(), Duration::from_secs(20))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        // On ne reprend le focus que si on a vraiment validé : sinon la fenêtre de Steam attend
+        // une réponse et la passer derrière ne rendrait service à personne.
+        if matches!(outcome, dialog::Outcome::Confirmed) {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
         }
-        Ok(clicked)
+        serde_json::to_value(outcome).map_err(|e| e.to_string())
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, auto_confirm);
-        steam::install(appid).map(|_| false)
+        let _ = (app, auto_confirm, dialog_title);
+        steam::install(appid)?;
+        Ok(serde_json::json!({ "kind": "skipped" }))
     }
 }
 

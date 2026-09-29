@@ -12,6 +12,19 @@ export function formatLastPlayed(ts: number, t: TFunction, locale: string): stri
   return t("playedOn", { date });
 }
 
+/**
+ * Temps de jeu cumulé, à partir de minutes. Au-delà de dix heures, la minute près n'apporte plus
+ * rien et encombre la puce.
+ */
+export function formatPlaytime(minutes: number, t: TFunction, locale: string): string {
+  if (!minutes) return "";
+  if (minutes < 60) return t("playtimeMinutes", { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours >= 10 || rest === 0) return t("playtimeHours", { n: hours.toLocaleString(locale) });
+  return t("playtimeHoursMinutes", { h: hours, m: rest });
+}
+
 export function formatSize(bytes: number, t: TFunction, locale: string): string {
   if (!bytes) return "";
   const gb = bytes / 1024 ** 3;

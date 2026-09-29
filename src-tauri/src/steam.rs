@@ -39,6 +39,8 @@ pub struct Game {
     pub size_on_disk: u64,
     pub last_played: u64,
     pub last_updated: u64,
+    /// Temps de jeu cumulé, en minutes, lu dans `localconfig.vdf`.
+    pub playtime: u64,
     pub art: GameArt,
 }
 
@@ -49,6 +51,15 @@ pub struct CatalogGame {
     pub appid: u32,
     pub name: String,
     pub last_played: u64,
+    pub playtime: u64,
+}
+
+/// Ce qu'un compte a fait d'une application, d'après `localconfig.vdf`.
+#[derive(Debug, Clone, Copy, Default)]
+struct Usage {
+    last_played: u64,
+    /// En minutes.
+    playtime: u64,
 }
 
 /// Résultat d'un scan : ce qui est installé, et ce que le client connaît en plus.
@@ -168,6 +179,8 @@ fn parse_manifest(path: &Path, library: &Path) -> Option<Game> {
         size_on_disk: app.get_u64("SizeOnDisk").unwrap_or(0),
         last_played: app.get_u64("LastPlayed").unwrap_or(0),
         last_updated: app.get_u64("lastupdated").unwrap_or(0),
+        // Rempli après coup : le temps de jeu vit dans la configuration du compte, pas ici.
+        playtime: 0,
         art: GameArt::default(),
     })
 }
@@ -299,7 +312,7 @@ fn newest_user_dir(steam_root: &Path) -> Option<PathBuf> {
 /// `localconfig.vdf` n'est pas une liste de possession : il recense ce qui a été lancé ou
 /// configuré. Il inclut donc des démos et des jeux gratuits essayés, et il manque les jeux
 /// possédés jamais ouverts. C'est approximatif, mais local, instantané et sans clé d'API.
-fn seen_apps(steam_root: &Path) -> HashMap<u32, u64> {
+fn seen_apps(steam_root: &Path) -> HashMap<u32, Usage> {
     let mut out = HashMap::new();
     let Some(dir) = active_user_dir(steam_root).or_else(|| newest_user_dir(steam_root)) else {
         return out;
@@ -319,7 +332,13 @@ fn seen_apps(steam_root: &Path) -> HashMap<u32, u64> {
     let Some(apps) = apps else { return out };
     for (id, app) in apps.entries() {
         if let Ok(appid) = id.trim().parse::<u32>() {
-            out.insert(appid, app.get_u64("LastPlayed").unwrap_or(0));
+            out.insert(
+                appid,
+                Usage {
+                    last_played: app.get_u64("LastPlayed").unwrap_or(0),
+                    playtime: app.get_u64("Playtime").unwrap_or(0),
+                },
+            );
         }
     }
     out
@@ -328,13 +347,13 @@ fn seen_apps(steam_root: &Path) -> HashMap<u32, u64> {
 /// Les jeux connus du client mais absents du disque, triés comme la grille principale.
 fn catalog(
     apps: &HashMap<u32, crate::appinfo::AppInfo>,
-    seen: &HashMap<u32, u64>,
+    seen: &HashMap<u32, Usage>,
     installed: &HashSet<u32>,
 ) -> Vec<CatalogGame> {
     let mut list: Vec<CatalogGame> = seen
         .iter()
         .filter(|(appid, _)| !installed.contains(appid) && !HIDDEN_APPIDS.contains(appid))
-        .filter_map(|(&appid, &last_played)| {
+        .filter_map(|(&appid, usage)| {
             let info = apps.get(&appid)?;
             // Uniquement des jeux : ni DLC, ni outils, ni configurations, ni démos.
             if !info.kind.eq_ignore_ascii_case("game") || info.name.is_empty() {
@@ -343,7 +362,12 @@ fn catalog(
             if HIDDEN_PREFIXES.iter().any(|prefix| info.name.starts_with(prefix)) {
                 return None;
             }
-            Some(CatalogGame { appid, name: info.name.clone(), last_played })
+            Some(CatalogGame {
+                appid,
+                name: info.name.clone(),
+                last_played: usage.last_played,
+                playtime: usage.playtime,
+            })
         })
         .collect();
     list.sort_by(|a, b| {
@@ -397,7 +421,12 @@ pub fn scan(steam_root: &Path) -> Scan {
             .cmp(&a.last_played)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
-    let catalog = catalog(&apps, &seen_apps(steam_root), &appids);
+    // Le temps de jeu n'est pas dans les manifestes : il vit dans la configuration du compte.
+    let usage = seen_apps(steam_root);
+    for game in &mut games {
+        game.playtime = usage.get(&game.appid).map_or(0, |u| u.playtime);
+    }
+    let catalog = catalog(&apps, &usage, &appids);
     Scan { games, catalog }
 }
 

@@ -4,7 +4,7 @@ import { GameArt } from "./GameArt";
 import { FolderArt } from "./FolderTile";
 import { PlayIcon } from "./Icons";
 import { artSources, gameHue } from "../lib/art";
-import { formatLastPlayed, formatSize } from "../lib/format";
+import { formatLastPlayed, formatPlaytime, formatSize } from "../lib/format";
 import { sound } from "../lib/sound";
 import { useI18n, type TFunction } from "../lib/i18n";
 import type { ViewItem } from "./BoardGrid";
@@ -130,6 +130,7 @@ function GameScreen({ game, folderName, launching, onLaunch, onMoveOut }: Props 
           <h1 className="line-clamp-2 text-3xl font-black leading-tight text-ink">{game.name}</h1>
           <div className="flex flex-wrap gap-2">
             <Chip>{formatLastPlayed(game.lastPlayed, t, locale)}</Chip>
+            {game.playtime > 0 && <Chip>{formatPlaytime(game.playtime, t, locale)}</Chip>}
             {game.sizeOnDisk > 0 && <Chip>{formatSize(game.sizeOnDisk, t, locale)}</Chip>}
             {game.installed ? (
               <Chip title={game.libraryPath}>{driveOf(game.libraryPath, t)}</Chip>

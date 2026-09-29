@@ -10,7 +10,7 @@ use crate::steam::{CatalogGame, Game, Scan};
 
 pub const CACHE_FILE: &str = "games_cache.json";
 /// Incrémenter si la structure de `Game` change : l'ancien cache est alors ignoré.
-pub const CACHE_VERSION: u32 = 3;
+pub const CACHE_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

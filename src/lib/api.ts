@@ -71,7 +71,7 @@ export function launchGame(appid: number): Promise<void> {
 
 const now = Math.floor(Date.now() / 1000);
 const DAY = 86_400;
-const demo = (appid: number, name: string, daysAgo: number, gb: number): Game => ({
+const demo = (appid: number, name: string, daysAgo: number, gb: number, playtime = 0): Game => ({
   appid,
   name,
   installDir: name,
@@ -79,21 +79,22 @@ const demo = (appid: number, name: string, daysAgo: number, gb: number): Game =>
   sizeOnDisk: gb * 1024 ** 3,
   lastPlayed: daysAgo < 0 ? 0 : now - daysAgo * DAY,
   installed: true,
+  playtime,
   lastUpdated: now - 30 * DAY,
   art: { capsule: null, hero: null, logo: null, header: null, icon: null },
 });
 
 const DEMO_GAMES: Game[] = [
-  demo(413150, "Stardew Valley", 0, 0.6),
-  demo(367520, "Hollow Knight", 1, 9),
-  demo(1145360, "Hades", 3, 15),
-  demo(504230, "Celeste", 6, 1.2),
-  demo(620, "Portal 2", 12, 12),
-  demo(105600, "Terraria", 20, 0.5),
-  demo(1245620, "ELDEN RING", 45, 60),
-  demo(292030, "The Witcher 3: Wild Hunt", 90, 50),
-  demo(1794680, "Vampire Survivors", 120, 0.6),
-  demo(646570, "Slay the Spire", 200, 1),
+  demo(413150, "Stardew Valley", 0, 0.6, 7320),
+  demo(367520, "Hollow Knight", 1, 9, 2640),
+  demo(1145360, "Hades", 3, 15, 1875),
+  demo(504230, "Celeste", 6, 1.2, 545),
+  demo(620, "Portal 2", 12, 12, 430),
+  demo(105600, "Terraria", 20, 0.5, 12040),
+  demo(1245620, "ELDEN RING", 45, 60, 5610),
+  demo(292030, "The Witcher 3: Wild Hunt", 90, 50, 9200),
+  demo(1794680, "Vampire Survivors", 120, 0.6, 38),
+  demo(646570, "Slay the Spire", 200, 1, 3120),
   demo(588650, "Dead Cells", -1, 1.5),
   demo(1086940, "Baldur's Gate 3", -1, 150),
 ];

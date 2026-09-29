@@ -20,6 +20,8 @@ export interface InstalledGame {
   sizeOnDisk: number;
   lastPlayed: number;
   lastUpdated: number;
+  /** Temps de jeu cumulé, en minutes. */
+  playtime: number;
   art: GameArt;
 }
 
@@ -28,6 +30,7 @@ export interface CatalogGame {
   appid: number;
   name: string;
   lastPlayed: number;
+  playtime: number;
 }
 
 /**

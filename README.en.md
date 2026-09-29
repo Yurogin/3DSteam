@@ -69,11 +69,24 @@ takes over, and as a last resort a coloured tile with the game's initials.
 
 Launching goes through `steam://run/<appid>`: Steam handles updates, cloud saves and DRM.
 
+Installing goes through `steam://install/<appid>`, which opens Steam's own dialog. There is no way
+to start a download without it: the client holds the licences. That dialog answers no keyboard
+input — no Tab, no Enter, no focus ring appears — and its interface exposes nothing to UI
+Automation (three descendants, zero buttons). The only thing that confirms it is a click.
+`dialog.rs` can synthesise one (⚙ → General, off by default), behind two guards: the target window
+must have appeared **after** the request and must hold focus, otherwise nothing is touched.
+3DSteam's window then takes focus back on its own.
+
+Progress is read from the manifests (`BytesDownloaded`, `BytesToDownload`, `StateFlags`), re-read
+every 1.2 s during a download and every 5 s otherwise: a bar on the tile, a percentage on the top
+screen, and an automatic switch to "playable" when it ends.
+
 | File | Role |
 | --- | --- |
 | `src-tauri/src/vdf.rs` | Valve KeyValues parser (+ tests) |
 | `src-tauri/src/steam.rs` | Steam detection, libraries, manifests, artwork, catalogue, launching |
 | `src-tauri/src/appinfo.rs` | Binary `appinfo.vdf` cache: names, types, icon hashes (+ tests) |
+| `src-tauri/src/dialog.rs` | Confirming Steam's install dialog (Windows) |
 | `src-tauri/src/icons.rs` | Largest image in an `.ico`, real icon sizes (+ tests) |
 | `src-tauri/src/cache.rs` | Reading / writing `games_cache.json` |
 | `src-tauri/src/lib.rs` | Tauri commands `load_cache`, `scan_library`, `launch_game` |
@@ -112,7 +125,7 @@ The ⚙ button (or `P`, or Select on a controller) opens the settings:
   (like the theme) and lives in `src/index.css`, one shadow variable and one animation variable per
   style.
 - **Language** — French or English (dates and times follow it).
-- **General** — sounds and volume, fullscreen, icons, cursor.
+- **General** — sounds and volume, fullscreen, auto-confirming Steam's dialog, icons, cursor.
 - **Data** — reset the layout, the preferences, clear the game cache, or wipe everything (each one
   asks for confirmation).
 

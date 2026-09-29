@@ -41,6 +41,15 @@ export interface Game extends InstalledGame {
   installed: boolean;
 }
 
+/** Un téléchargement Steam en cours, lu dans les manifestes. */
+export interface Download {
+  appid: number;
+  name: string;
+  bytesDownloaded: number;
+  bytesToDownload: number;
+  paused: boolean;
+}
+
 export interface Library {
   version: number;
   scannedAt: number;

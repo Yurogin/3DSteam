@@ -8,7 +8,7 @@ import { formatLastPlayed, formatPlaytime, formatSize } from "../lib/format";
 import { sound } from "../lib/sound";
 import { useI18n, type TFunction } from "../lib/i18n";
 import type { ViewItem } from "./BoardGrid";
-import type { Game } from "../types";
+import type { Download, Game } from "../types";
 
 interface Props {
   item: ViewItem;
@@ -17,6 +17,8 @@ interface Props {
   /** Nom du dossier ouvert, si on est dans un dossier. */
   folderName: string | null;
   launching: boolean;
+  /** Téléchargement en cours du jeu sélectionné, s'il y en a un. */
+  download?: Download;
   canCreateFolder: boolean;
   onLaunch: () => void;
   onOpenFolder: () => void;
@@ -110,9 +112,12 @@ function Stage({
   );
 }
 
-function GameScreen({ game, folderName, launching, onLaunch, onMoveOut }: Props & { game: Game }) {
+function GameScreen({ game, folderName, launching, download, onLaunch, onMoveOut }: Props & { game: Game }) {
   const { t, locale } = useI18n();
   const hue = gameHue(game.appid);
+  const percent = download && download.bytesToDownload > 0
+    ? Math.min(100, Math.round((100 * download.bytesDownloaded) / download.bytesToDownload))
+    : 0;
   return (
     <Stage
       backdrop={
@@ -134,6 +139,8 @@ function GameScreen({ game, folderName, launching, onLaunch, onMoveOut }: Props 
             {game.sizeOnDisk > 0 && <Chip>{formatSize(game.sizeOnDisk, t, locale)}</Chip>}
             {game.installed ? (
               <Chip title={game.libraryPath}>{driveOf(game.libraryPath, t)}</Chip>
+            ) : download ? (
+              <Chip>{download.paused ? t("downloadPaused") : t("downloading", { p: percent })}</Chip>
             ) : (
               <Chip>{t("notInstalled")}</Chip>
             )}
@@ -163,10 +170,16 @@ function GameScreen({ game, folderName, launching, onLaunch, onMoveOut }: Props 
       }
       right={
         <>
-          <PrimaryButton onClick={onLaunch} disabled={launching || !game.installed} pulse={launching}>
-            <PlayIcon width={22} height={22} />
-            {!game.installed ? t("notInstalled") : launching ? t("launching") : t("launch")}
-          </PrimaryButton>
+          {game.installed ? (
+            <PrimaryButton onClick={onLaunch} disabled={launching} pulse={launching}>
+              <PlayIcon width={22} height={22} />
+              {launching ? t("launching") : t("launch")}
+            </PrimaryButton>
+          ) : (
+            <PrimaryButton onClick={onLaunch} disabled={download != null} pulse={download != null}>
+              {download ? t("downloading", { p: percent }) : t("install")}
+            </PrimaryButton>
+          )}
           <span className="pr-2 text-xs font-bold text-muted">
             {game.installed ? t("launchHint") : t("notInstalledHint")}
           </span>

@@ -70,11 +70,24 @@ colorée avec les initiales du jeu.
 
 Le lancement passe par `steam://run/<appid>` : Steam s'occupe des mises à jour, du cloud et des DRM.
 
+L'installation passe par `steam://install/<appid>`, qui ouvre la boîte de dialogue de Steam. Il
+n'existe pas de moyen de déclencher un téléchargement sans elle : le client détient les licences.
+Or cette boîte ne répond pas au clavier — ni Tab, ni Entrée, aucun anneau de focus n'apparaît — et
+son interface n'expose rien à l'UI Automation (trois descendants, zéro bouton). Le seul geste qui
+la valide est un clic. `dialog.rs` sait le synthétiser (⚙ → Général, désactivé par défaut), avec
+deux garde-fous : la fenêtre visée doit être apparue **après** la demande et avoir le focus, sinon
+on ne touche à rien. La fenêtre de 3DSteam reprend ensuite la main d'elle-même.
+
+La progression se lit dans les manifestes (`BytesDownloaded`, `BytesToDownload`, `StateFlags`),
+relus toutes les 1,2 s pendant un téléchargement et toutes les 5 s sinon : barre sur la tuile,
+pourcentage dans l'écran du haut, et passage automatique à « jouable » à la fin.
+
 | Fichier | Rôle |
 | --- | --- |
 | `src-tauri/src/vdf.rs` | Parseur KeyValues de Valve (+ tests) |
 | `src-tauri/src/steam.rs` | Détection de Steam, bibliothèques, manifestes, visuels, catalogue, lancement |
 | `src-tauri/src/appinfo.rs` | Cache binaire `appinfo.vdf` : noms, types, empreintes d'icônes (+ tests) |
+| `src-tauri/src/dialog.rs` | Validation de la boîte d'installation de Steam (Windows) |
 | `src-tauri/src/icons.rs` | Plus grande image d'un `.ico`, taille réelle des icônes (+ tests) |
 | `src-tauri/src/cache.rs` | Lecture / écriture de `games_cache.json` |
 | `src-tauri/src/lib.rs` | Commandes Tauri `load_cache`, `scan_library`, `launch_game` |
@@ -114,7 +127,7 @@ Le bouton ⚙ (ou `P`, ou Select à la manette) ouvre les paramètres :
   `data-cursor` sur `<html>` (comme le thème) et se règle dans `src/index.css`, une variable
   d'ombre et une d'animation par style.
 - **Langue** — français ou anglais (dates et heures suivent la langue).
-- **Général** — sons et volume, plein écran, icônes, curseur.
+- **Général** — sons et volume, plein écran, validation automatique de la boîte de Steam, icônes, curseur.
 - **Données** — réinitialiser la disposition, les préférences, vider le cache des jeux, ou tout
   remettre à zéro (chaque action demande une confirmation).
 

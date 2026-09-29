@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { Game, Library } from "../types";
+import type { Download, Game, Library } from "../types";
 
 /**
  * Pont vers les commandes Rust. Hors Tauri (`npm run dev` dans un navigateur),
@@ -20,6 +20,21 @@ export function scanLibrary(): Promise<Library> {
       400,
     ),
   );
+}
+
+/**
+ * Ouvre la boîte d'installation de Steam. `autoConfirm` demande à la valider par un clic
+ * synthétique ; la promesse dit si ce clic a bien été envoyé.
+ */
+export function installGame(appid: number, autoConfirm: boolean): Promise<boolean> {
+  if (inTauri) return invoke<boolean>("install_game", { appid, autoConfirm });
+  console.info(`[démo] steam://install/${appid}`);
+  return Promise.resolve(false);
+}
+
+/** Téléchargements en cours (toujours vide dans le navigateur). */
+export function listDownloads(): Promise<Download[]> {
+  return inTauri ? invoke<Download[]>("downloads") : Promise.resolve([]);
 }
 
 export function clearCache(): Promise<void> {

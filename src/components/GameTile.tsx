@@ -2,7 +2,7 @@ import { memo } from "react";
 import { motion } from "framer-motion";
 import { GameIcon } from "./GameIcon";
 import { sound } from "../lib/sound";
-import type { Game } from "../types";
+import type { Download, Game } from "../types";
 
 interface Props {
   game: Game;
@@ -10,6 +10,8 @@ interface Props {
   index: number;
   size: number;
   selected: boolean;
+  /** Téléchargement en cours pour ce jeu, s'il y en a un. */
+  download?: Download;
   /** En cours de déplacement : l'icône flottante la remplace. */
   lifted: boolean;
   /** Animation de trajet entre deux cases (coupée pour l'icône qui vient d'être posée). */
@@ -21,7 +23,10 @@ interface Props {
 const spring = { type: "spring", stiffness: 520, damping: 32, mass: 0.7 } as const;
 
 /** Icône de jeu. `layoutId` la fait glisser d'une case à l'autre quand on la déplace. */
-export const GameTile = memo(function GameTile({ game, index, size, selected, lifted, animateLayout, onSelect, onLaunch }: Props) {
+export const GameTile = memo(function GameTile({ game, index, size, selected, lifted, animateLayout, download, onSelect, onLaunch }: Props) {
+  const percent = download && download.bytesToDownload > 0
+    ? Math.min(100, Math.round((100 * download.bytesDownloaded) / download.bytesToDownload))
+    : 0;
   return (
     <motion.button
       layoutId={animateLayout ? `tile-${game.appid}` : undefined}
@@ -32,7 +37,7 @@ export const GameTile = memo(function GameTile({ game, index, size, selected, li
       onDoubleClick={() => onLaunch(index)}
       initial={false}
       // Un jeu du catalogue s'affiche en retrait : il est là, mais pas jouable.
-      animate={{ opacity: lifted ? 0 : game.installed ? 1 : 0.45, scale: selected ? 1.07 : 1, y: selected ? -3 : 0 }}
+      animate={{ opacity: lifted ? 0 : game.installed || download ? 1 : 0.45, scale: selected ? 1.07 : 1, y: selected ? -3 : 0 }}
       whileHover={{ scale: selected ? 1.1 : 1.08, y: -5 }}
       whileTap={{ scale: 0.92 }}
       aria-label={game.name}
@@ -46,6 +51,14 @@ export const GameTile = memo(function GameTile({ game, index, size, selected, li
       {/* Léger vernis brillant et fin liseré, façon icône 3DS. */}
       <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-white/25 to-transparent" />
       <span className="pointer-events-none absolute inset-0 rounded-tile ring-1 ring-inset ring-black/10" />
+      {download && (
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-[6px] bg-black/45">
+          <span
+            className="block h-full bg-accent transition-[width] duration-700"
+            style={{ width: `${percent}%` }}
+          />
+        </span>
+      )}
     </motion.button>
   );
 });

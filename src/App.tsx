@@ -11,13 +11,14 @@ import { ZoomControls } from "./components/ZoomControls";
 import { useLibrary } from "./hooks/useLibrary";
 import { useGridMetrics } from "./hooks/useGridMetrics";
 import { useGamepad } from "./hooks/useGamepad";
+import { useDownloads } from "./hooks/useDownloads";
 import { OnScreenKeyboard } from "./components/OnScreenKeyboard";
 import { isDir, isRange, isTextInput, moveFocus, nudgeRange, setNavVisible, type Action, type Dir } from "./lib/nav";
 import { keyAction, resetBindings } from "./lib/bindings";
 import { useHorizontalWheel } from "./hooks/useHorizontalWheel";
 import { DEFAULT_THEME, useTheme } from "./themes/themes";
 import { defaultLang, useI18n } from "./lib/i18n";
-import { clearCache, launchGame } from "./lib/api";
+import { clearCache, installGame, launchGame } from "./lib/api";
 import { isFullscreen, setFullscreen } from "./lib/fullscreen";
 import { DEFAULT_CURSOR, useCursorStyle } from "./lib/cursorStyle";
 import { DEFAULT_ICON_STYLE, useIconStyle } from "./lib/iconStyle";
@@ -66,6 +67,10 @@ export default function App() {
   const themes = useTheme();
   const cursorStyle = useCursorStyle();
   const iconStyle = useIconStyle();
+  /** Un téléchargement qui s'achève relance le scan : le jeu devient jouable de lui-même. */
+  const downloads = useDownloads(rescan);
+  const [autoConfirm, setAutoConfirm] = useState(() => load("autoConfirmInstall", false));
+  useEffect(() => save("autoConfirmInstall", autoConfirm), [autoConfirm]);
   const { theme, setTheme, cycle: cycleTheme } = themes;
   const { t, tn, lang, locale, setLang } = useI18n();
 
@@ -204,8 +209,8 @@ export default function App() {
   const launch = useCallback(
     async (game: Game) => {
       if (launchingId != null) return;
-      // Un jeu du catalogue n'est pas sur le disque : l'installation viendra plus tard.
-      if (!game.installed) return void showToast(t("notInstalledToast", { name: game.name }));
+      // Filet de sécurité : un jeu du catalogue passe par `install`, jamais par ici.
+      if (!game.installed) return;
       setLaunchingId(game.appid);
       sound.launch();
       try {
@@ -219,6 +224,29 @@ export default function App() {
       }
     },
     [launchingId, showToast, t],
+  );
+
+  /**
+   * Installation : Steam impose sa boîte de dialogue, elle ne répond pas au clavier et son
+   * interface n'expose rien à l'accessibilité. Avec le réglage, elle est validée par un clic
+   * synthétique côté Rust ; sinon on demande à l'utilisateur de le faire.
+   */
+  const install = useCallback(
+    async (game: Game) => {
+      sound.select();
+      showToast(t("installStarting", { name: game.name }));
+      try {
+        if (!(await installGame(game.appid, autoConfirm))) showToast(t("installConfirm"));
+        // Un tout petit jeu peut être installé avant le premier sondage : la disparition du
+        // téléchargement passerait alors inaperçue. Ce scan différé rattrape ce cas ; les
+        // téléchargements plus longs restent couverts par `useDownloads`.
+        window.setTimeout(() => void rescan(), 6000);
+      } catch (e) {
+        sound.error();
+        showToast(String(e));
+      }
+    },
+    [autoConfirm, rescan, showToast, t],
   );
 
   const enterFolder = useCallback((id: string) => {
@@ -241,10 +269,10 @@ export default function App() {
     (index?: number) => {
       const item = itemsRef.current[index ?? cursorRef.current];
       if (index != null) setCursor(index);
-      if (item?.kind === "game") void launch(item.game);
+      if (item?.kind === "game") void (item.game.installed ? launch(item.game) : install(item.game));
       else if (item?.kind === "folder") enterFolder(item.folder.id);
     },
-    [launch, enterFolder],
+    [launch, install, enterFolder],
   );
   const activateRef = useRef(activate);
   activateRef.current = activate;
@@ -439,6 +467,7 @@ export default function App() {
     if (fullscreen) void toggleFullscreen();
     cursorStyle.setStyle(DEFAULT_CURSOR);
     iconStyle.setStyle(DEFAULT_ICON_STYLE);
+    setAutoConfirm(false);
     sound.select();
     showToast(t("prefsReset"));
   }, [setTheme, setLang, fullscreen, toggleFullscreen, cursorStyle, iconStyle, showToast, t]);
@@ -731,7 +760,11 @@ export default function App() {
             folderName={openFolder?.name ?? null}
             launching={launchingId != null}
             canCreateFolder={view == null && !browsing && games.length > 0}
-            onLaunch={() => current?.kind === "game" && void launch(current.game)}
+            download={current?.kind === "game" ? downloads.get(current.game.appid) : undefined}
+            onLaunch={() =>
+              current?.kind === "game" &&
+              void (current.game.installed ? launch(current.game) : install(current.game))
+            }
             onOpenFolder={() => current?.kind === "folder" && enterFolder(current.folder.id)}
             onEditFolder={() => current?.kind === "folder" && setEditor({ mode: "edit", id: current.folder.id })}
             onDeleteFolder={() => current?.kind === "folder" && removeFolder(current.folder.id)}
@@ -857,6 +890,7 @@ export default function App() {
                 labelHeight={labelHeight}
                 cursor={cursorIndex}
                 editable={!browsing}
+                downloads={downloads}
                 onCursor={pointAt}
                 onActivate={activateTile}
                 onMove={moveItem}
@@ -895,6 +929,8 @@ export default function App() {
             onToggleFullscreen={() => void toggleFullscreen()}
             cursorStyle={cursorStyle.style}
             onCursorStyle={cursorStyle.setStyle}
+            autoConfirm={autoConfirm}
+            onToggleAutoConfirm={() => setAutoConfirm((on) => !on)}
             onResetLayout={resetLayout}
             onResetPrefs={resetPrefs}
             onClearCache={() => void clearGameCache()}

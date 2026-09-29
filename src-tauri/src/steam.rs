@@ -431,24 +431,95 @@ pub fn scan(steam_root: &Path) -> Scan {
 }
 
 /// Lance un jeu via le protocole `steam://run/<appid>` (Steam gère mises à jour et DRM).
-pub fn launch(appid: u32) -> Result<(), String> {
-    let uri = format!("steam://run/{appid}");
+/// Bits de `StateFlags` qui signalent une installation ou une mise à jour : requise (2), en file
+/// (8), en cours (256), en pause (512), démarrée (1024).
+const STATE_UPDATING: u64 = 2 | 8 | 256 | 512 | 1024;
+/// Bit de mise en pause.
+const STATE_PAUSED: u64 = 512;
 
+/// Un téléchargement en cours, lu dans les manifestes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Download {
+    pub appid: u32,
+    pub name: String,
+    pub bytes_downloaded: u64,
+    pub bytes_to_download: u64,
+    pub paused: bool,
+}
+
+/// Les téléchargements en cours, toutes bibliothèques confondues. Steam tient ces compteurs à
+/// jour dans les manifestes : quelques petits fichiers à relire, l'interface peut interroger
+/// souvent sans coût notable.
+pub fn downloads(steam_root: &Path) -> Vec<Download> {
+    let mut out = Vec::new();
+    for steamapps in library_folders(steam_root) {
+        let Ok(entries) = fs::read_dir(&steamapps) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_manifest = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("appmanifest_") && n.ends_with(".acf"));
+            if !is_manifest {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(doc) = vdf::parse(&text) else {
+                continue;
+            };
+            let Some(app) = doc.get("AppState") else {
+                continue;
+            };
+            let flags = app.get_u64("StateFlags").unwrap_or(0);
+            if flags & STATE_UPDATING == 0 {
+                continue;
+            }
+            let Some(appid) = app.get_u64("appid") else {
+                continue;
+            };
+            out.push(Download {
+                appid: appid as u32,
+                name: app.get_str("name").unwrap_or_default().to_owned(),
+                bytes_downloaded: app.get_u64("BytesDownloaded").unwrap_or(0),
+                bytes_to_download: app.get_u64("BytesToDownload").unwrap_or(0),
+                paused: flags & STATE_PAUSED != 0,
+            });
+        }
+    }
+    out
+}
+
+/// Ouvre la boîte d'installation de Steam pour ce jeu. Il n'existe pas de moyen de déclencher un
+/// téléchargement sans elle : le client détient les licences.
+pub fn install(appid: u32) -> Result<(), String> {
+    open_uri(&format!("steam://install/{appid}"))
+}
+
+pub fn launch(appid: u32) -> Result<(), String> {
+    open_uri(&format!("steam://run/{appid}"))
+}
+
+fn open_uri(uri: &str) -> Result<(), String> {
     #[cfg(windows)]
     let result = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", &uri])
+            .args(["/C", "start", "", uri])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
     };
 
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(&uri).spawn();
+    let result = std::process::Command::new("open").arg(uri).spawn();
 
     #[cfg(all(unix, not(target_os = "macos")))]
-    let result = std::process::Command::new("xdg-open").arg(&uri).spawn();
+    let result = std::process::Command::new("xdg-open").arg(uri).spawn();
 
     result
         .map(|_| ())

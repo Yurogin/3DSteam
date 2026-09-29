@@ -25,6 +25,8 @@ interface Props {
   onToggleFullscreen: () => void;
   cursorStyle: CursorStyle;
   onCursorStyle: (style: CursorStyle) => void;
+  autoConfirm: boolean;
+  onToggleAutoConfirm: () => void;
   onResetLayout: () => void;
   onResetPrefs: () => void;
   onClearCache: () => void;
@@ -401,7 +403,7 @@ const CURSOR_OPTIONS = [
   { id: "none", label: "cursorNone" },
 ] as const;
 
-function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cursorStyle, onCursorStyle }: Props) {
+function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cursorStyle, onCursorStyle, autoConfirm, onToggleAutoConfirm }: Props) {
   const { t } = useI18n();
   const [volume, setVolume] = useState(sound.volume);
   return (
@@ -432,6 +434,11 @@ function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cu
       <Section title={t("fullscreen")} description={t("fullscreenDesc")}>
         <div className="rounded-2xl bg-surface-2 p-4">
           <Toggle label={t("fullscreen")} on={fullscreen} onChange={onToggleFullscreen} />
+        </div>
+      </Section>
+      <Section title={t("install")} description={t("autoConfirmDesc")}>
+        <div className="rounded-2xl bg-surface-2 p-4">
+          <Toggle label={t("autoConfirm")} on={autoConfirm} onChange={onToggleAutoConfirm} />
         </div>
       </Section>
       <IconStyleSection />

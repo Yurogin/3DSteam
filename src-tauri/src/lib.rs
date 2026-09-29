@@ -1,12 +1,16 @@
 mod appinfo;
 mod battery;
 mod cache;
+#[cfg(windows)]
+mod dialog;
 mod icons;
 mod steam;
 mod themes;
 mod vdf;
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
@@ -39,6 +43,49 @@ fn allow_derived_icons(app: &AppHandle, app_data_dir: &std::path::Path) {
     }
     if let Err(e) = app.asset_protocol_scope().allow_directory(&dir, true) {
         eprintln!("[3dsteam] scope asset refusé pour {} : {e}", dir.display());
+    }
+}
+
+/// Racine de Steam, cherchée une seule fois : la vue des téléchargements interroge souvent.
+fn steam_root() -> Option<&'static std::path::Path> {
+    static ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
+    ROOT.get_or_init(steam::find_steam_root).as_deref()
+}
+
+/// Téléchargements en cours, relus à chaque appel dans les manifestes.
+#[tauri::command]
+fn downloads() -> Vec<steam::Download> {
+    steam_root().map(steam::downloads).unwrap_or_default()
+}
+
+/// Ouvre la boîte d'installation de Steam. Avec `autoConfirm`, elle est validée par un clic
+/// synthétique (voir `dialog.rs`) et la fenêtre reprend ensuite le focus. Renvoie vrai si le clic
+/// a été envoyé ; sinon c'est à l'utilisateur de valider.
+#[tauri::command]
+async fn install_game(app: AppHandle, appid: u32, auto_confirm: bool) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        // Releé avant la demande : seule une fenêtre apparue ensuite pourra être cliquée.
+        let before = if auto_confirm { dialog::windows() } else { Vec::new() };
+        steam::install(appid)?;
+        if !auto_confirm {
+            return Ok(false);
+        }
+        let clicked =
+            tauri::async_runtime::spawn_blocking(move || dialog::confirm(&before, Duration::from_secs(15)))
+                .await
+                .map_err(|e| e.to_string())?;
+        if clicked {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }
+        Ok(clicked)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, auto_confirm);
+        steam::install(appid).map(|_| false)
     }
 }
 
@@ -125,6 +172,8 @@ pub fn run() {
             load_cache,
             scan_library,
             launch_game,
+            install_game,
+            downloads,
             battery_status,
             clear_cache,
             list_theme_files,

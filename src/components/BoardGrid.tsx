@@ -6,7 +6,7 @@ import { FolderArt, FolderTile } from "./FolderTile";
 import { GameIcon } from "./GameIcon";
 import { sound } from "../lib/sound";
 import type { Folder } from "../lib/board";
-import type { Game } from "../types";
+import type { Download, Game } from "../types";
 
 /** Contenu résolu d'une case. */
 export type ViewItem = { kind: "game"; game: Game } | { kind: "folder"; folder: Folder; games: Game[] } | null;
@@ -33,6 +33,8 @@ interface Props {
   held: number | null;
   /** Faux quand la navigation est dans les boutons : le halo du curseur s'efface. */
   showCursor: boolean;
+  /** Téléchargements en cours, par appid. */
+  downloads: Map<number, Download>;
 }
 
 interface Drag {
@@ -78,7 +80,7 @@ function LiftedVisual({ item, size }: { item: NonNullable<ViewItem>; size: numbe
  * la souris à l'endroit exact où on l'a prise, puis se pose en douceur dans sa case d'arrivée.
  */
 export function BoardGrid(props: Props) {
-  const { items, rows, tileSize, gap, labelHeight, cursor, editable, onCursor, onActivate, held, showCursor } = props;
+  const { items, rows, tileSize, gap, labelHeight, cursor, editable, onCursor, onActivate, held, showCursor, downloads } = props;
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   /** Icône qui vient d'être posée : on coupe son animation de trajet (elle est déjà sur place). */
@@ -323,6 +325,7 @@ export function BoardGrid(props: Props) {
                     selected={underCursor}
                     lifted={lifted}
                     animateLayout={justDropped !== key && heldKey !== key}
+                    download={downloads.get(item.game.appid)}
                     onSelect={onCursor}
                     onLaunch={onActivate}
                   />

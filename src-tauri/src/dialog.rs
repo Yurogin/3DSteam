@@ -89,6 +89,11 @@ fn click(x: i32, y: i32) {
     }
 }
 
+/// Vrai si cette fenêtre a la taille d'une boîte de dialogue.
+pub fn is_dialog(hwnd: isize) -> bool {
+    rect(hwnd).is_some()
+}
+
 /// Ce qu'on a pu faire de la fenêtre apparue.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]

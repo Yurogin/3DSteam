@@ -82,6 +82,13 @@ pas au lanceur de le faire**. Toute fenêtre inattendue est donc laissée telle 
 plan, et 3DSteam le signale. La première installation reste manuelle : le titre n'est retenu que
 si le téléchargement démarre vraiment derrière. La fenêtre de 3DSteam reprend ensuite la main d'elle-même.
 
+Devant toute autre fenêtre, **la manette pilote le curseur** (`padmouse.rs`, activé par
+défaut) : les sticks le déplacent, ⓐ clique. Steam est alors utilisable au pad sans Big Picture,
+et surtout c'est l'utilisateur qui répond — contrat de licence, choix du disque, avertissement.
+La manette est lue en XInput et non par l'API du navigateur, qui ne reçoit plus rien dès que la
+page perd le focus. Le pilotage s'arrête dès que la fenêtre se referme, si l'utilisateur passe
+ailleurs, ou au bout de cinq minutes.
+
 La progression se lit dans les manifestes (`BytesDownloaded`, `BytesToDownload`, `StateFlags`),
 relus toutes les 1,2 s pendant un téléchargement et toutes les 5 s sinon : barre sur la tuile,
 pourcentage dans l'écran du haut, et passage automatique à « jouable » à la fin.
@@ -92,6 +99,7 @@ pourcentage dans l'écran du haut, et passage automatique à « jouable » à la
 | `src-tauri/src/steam.rs` | Détection de Steam, bibliothèques, manifestes, visuels, catalogue, lancement |
 | `src-tauri/src/appinfo.rs` | Cache binaire `appinfo.vdf` : noms, types, empreintes d'icônes (+ tests) |
 | `src-tauri/src/dialog.rs` | Validation de la boîte d'installation de Steam (Windows) |
+| `src-tauri/src/padmouse.rs` | La manette pilote le curseur devant une fenêtre Steam (XInput) |
 | `src-tauri/src/icons.rs` | Plus grande image d'un `.ico`, taille réelle des icônes (+ tests) |
 | `src-tauri/src/cache.rs` | Lecture / écriture de `games_cache.json` |
 | `src-tauri/src/lib.rs` | Commandes Tauri `load_cache`, `scan_library`, `launch_game` |

@@ -4,6 +4,8 @@ mod cache;
 #[cfg(windows)]
 mod dialog;
 mod icons;
+#[cfg(windows)]
+mod padmouse;
 mod steam;
 mod themes;
 mod vdf;
@@ -67,32 +69,44 @@ async fn install_game(
     appid: u32,
     auto_confirm: bool,
     dialog_title: Option<String>,
+    pad_mouse: bool,
 ) -> Result<serde_json::Value, String> {
     #[cfg(windows)]
     {
         // Relevé avant la demande : seule une fenêtre apparue ensuite sera regardée.
-        let before = if auto_confirm { dialog::windows() } else { Vec::new() };
+        let watching = auto_confirm || pad_mouse;
+        let before = if watching { dialog::windows() } else { Vec::new() };
         steam::install(appid)?;
-        if !auto_confirm {
+        if !watching {
             return Ok(serde_json::json!({ "kind": "skipped" }));
         }
         let outcome = tauri::async_runtime::spawn_blocking(move || {
-            dialog::confirm(&before, dialog_title.as_deref(), Duration::from_secs(20))
+            // La boîte connue se valide toute seule ; devant n'importe quelle autre fenêtre — un
+            // contrat de licence, un avertissement — la manette prend le relais et c'est
+            // l'utilisateur qui répond.
+            let outcome = if auto_confirm {
+                dialog::confirm(&before, dialog_title.as_deref(), Duration::from_secs(20))
+            } else {
+                dialog::Outcome::Nothing
+            };
+            let handled = matches!(outcome, dialog::Outcome::Confirmed);
+            if !handled && pad_mouse {
+                padmouse::drive(&before, Duration::from_secs(20), Duration::from_secs(300));
+            }
+            outcome
         })
         .await
         .map_err(|e| e.to_string())?;
-        // On ne reprend le focus que si on a vraiment validé : sinon la fenêtre de Steam attend
-        // une réponse et la passer derrière ne rendrait service à personne.
-        if matches!(outcome, dialog::Outcome::Confirmed) {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
-            }
+        // Le focus revient une fois Steam sorti de l'écran : la manette a déjà rendu la main
+        // quand sa fenêtre s'est refermée.
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_focus();
         }
         serde_json::to_value(outcome).map_err(|e| e.to_string())
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, auto_confirm, dialog_title);
+        let _ = (app, auto_confirm, dialog_title, pad_mouse);
         steam::install(appid)?;
         Ok(serde_json::json!({ "kind": "skipped" }))
     }

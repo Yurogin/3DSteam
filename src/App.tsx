@@ -69,6 +69,8 @@ export default function App() {
   const iconStyle = useIconStyle();
   /** Un téléchargement qui s'achève relance le scan : le jeu devient jouable de lui-même. */
   const downloads = useDownloads(rescan);
+  const [padMouse, setPadMouse] = useState(() => load("padMouse", true));
+  useEffect(() => save("padMouse", padMouse), [padMouse]);
   const [autoConfirm, setAutoConfirm] = useState(() => load("autoConfirmInstall", false));
   useEffect(() => save("autoConfirmInstall", autoConfirm), [autoConfirm]);
   /**
@@ -244,7 +246,7 @@ export default function App() {
       sound.select();
       showToast(t("installStarting", { name: game.name }));
       try {
-        const outcome = await installGame(game.appid, autoConfirm, dialogTitle);
+        const outcome = await installGame(game.appid, autoConfirm, dialogTitle, padMouse);
         if (outcome.kind === "unknown") {
           // On n'a pas touché à cette fenêtre. Si le téléchargement part quand même, c'est que
           // c'était bien la boîte d'installation : on retiendra son titre pour la prochaine fois.
@@ -262,7 +264,7 @@ export default function App() {
         showToast(String(e));
       }
     },
-    [autoConfirm, dialogTitle, rescan, showToast, t],
+    [autoConfirm, dialogTitle, padMouse, rescan, showToast, t],
   );
 
   // Le téléchargement a démarré, ou le jeu est apparu installé : la fenêtre observée était bien
@@ -495,6 +497,7 @@ export default function App() {
     cursorStyle.setStyle(DEFAULT_CURSOR);
     iconStyle.setStyle(DEFAULT_ICON_STYLE);
     setAutoConfirm(false);
+    setPadMouse(true);
     setDialogTitle(null);
     sound.select();
     showToast(t("prefsReset"));
@@ -959,6 +962,8 @@ export default function App() {
             onCursorStyle={cursorStyle.setStyle}
             autoConfirm={autoConfirm}
             onToggleAutoConfirm={() => setAutoConfirm((on) => !on)}
+            padMouse={padMouse}
+            onTogglePadMouse={() => setPadMouse((on) => !on)}
             onResetLayout={resetLayout}
             onResetPrefs={resetPrefs}
             onClearCache={() => void clearGameCache()}

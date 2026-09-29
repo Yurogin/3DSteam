@@ -41,8 +41,9 @@ export function installGame(
   appid: number,
   autoConfirm: boolean,
   dialogTitle: string | null,
+  padMouse: boolean,
 ): Promise<InstallOutcome> {
-  if (inTauri) return invoke<InstallOutcome>("install_game", { appid, autoConfirm, dialogTitle });
+  if (inTauri) return invoke<InstallOutcome>("install_game", { appid, autoConfirm, dialogTitle, padMouse });
   console.info(`[démo] steam://install/${appid}`);
   return Promise.resolve({ kind: "skipped" });
 }

@@ -27,6 +27,8 @@ interface Props {
   onCursorStyle: (style: CursorStyle) => void;
   autoConfirm: boolean;
   onToggleAutoConfirm: () => void;
+  padMouse: boolean;
+  onTogglePadMouse: () => void;
   onResetLayout: () => void;
   onResetPrefs: () => void;
   onClearCache: () => void;
@@ -403,7 +405,7 @@ const CURSOR_OPTIONS = [
   { id: "none", label: "cursorNone" },
 ] as const;
 
-function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cursorStyle, onCursorStyle, autoConfirm, onToggleAutoConfirm }: Props) {
+function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cursorStyle, onCursorStyle, autoConfirm, onToggleAutoConfirm, padMouse, onTogglePadMouse }: Props) {
   const { t } = useI18n();
   const [volume, setVolume] = useState(sound.volume);
   return (
@@ -436,9 +438,11 @@ function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cu
           <Toggle label={t("fullscreen")} on={fullscreen} onChange={onToggleFullscreen} />
         </div>
       </Section>
-      <Section title={t("install")} description={t("autoConfirmDesc")}>
-        <div className="rounded-2xl bg-surface-2 p-4">
+      <Section title={t("install")} description={t("padMouseDesc")}>
+        <div className="space-y-3 rounded-2xl bg-surface-2 p-4">
+          <Toggle label={t("padMouse")} on={padMouse} onChange={onTogglePadMouse} />
           <Toggle label={t("autoConfirm")} on={autoConfirm} onChange={onToggleAutoConfirm} />
+          <p className="text-xs font-bold leading-relaxed text-muted">{t("autoConfirmDesc")}</p>
         </div>
       </Section>
       <IconStyleSection />

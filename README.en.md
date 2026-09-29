@@ -81,6 +81,12 @@ window is left alone, in front, and 3DSteam says so. The first install stays man
 only kept if a download actually starts behind it.
 3DSteam's window then takes focus back on its own.
 
+In front of any other window, **the controller drives the cursor** (`padmouse.rs`, on by
+default): the sticks move it, ⓐ clicks. Steam becomes usable with a pad without Big Picture, and
+above all it is the user who answers — licence agreement, disk choice, warning. The controller is
+read through XInput rather than the browser API, which receives nothing once the page loses focus.
+Driving stops as soon as the window closes, if the user goes elsewhere, or after five minutes.
+
 Progress is read from the manifests (`BytesDownloaded`, `BytesToDownload`, `StateFlags`), re-read
 every 1.2 s during a download and every 5 s otherwise: a bar on the tile, a percentage on the top
 screen, and an automatic switch to "playable" when it ends.
@@ -91,6 +97,7 @@ screen, and an automatic switch to "playable" when it ends.
 | `src-tauri/src/steam.rs` | Steam detection, libraries, manifests, artwork, catalogue, launching |
 | `src-tauri/src/appinfo.rs` | Binary `appinfo.vdf` cache: names, types, icon hashes (+ tests) |
 | `src-tauri/src/dialog.rs` | Confirming Steam's install dialog (Windows) |
+| `src-tauri/src/padmouse.rs` | Controller drives the cursor in front of a Steam window (XInput) |
 | `src-tauri/src/icons.rs` | Largest image in an `.ico`, real icon sizes (+ tests) |
 | `src-tauri/src/cache.rs` | Reading / writing `games_cache.json` |
 | `src-tauri/src/lib.rs` | Tauri commands `load_cache`, `scan_library`, `launch_game` |

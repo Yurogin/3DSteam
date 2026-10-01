@@ -26,7 +26,7 @@ const RoundButton = ({ onClick, disabled, label, children }: { onClick: () => vo
   </motion.button>
 );
 
-/** Boutons − / + façon 3DS, avec l'indicateur de niveau entre les deux. */
+/** Boutons − / + façon console portable, avec l'indicateur de niveau entre les deux. */
 export function ZoomControls({ level, levels, onZoom }: Props) {
   const { t } = useI18n();
   return (

@@ -10,6 +10,7 @@ export type Action =
   | "back"
   | "grab"
   | "create"
+  | "menu"
   | "zoomIn"
   | "zoomOut"
   | "settings"

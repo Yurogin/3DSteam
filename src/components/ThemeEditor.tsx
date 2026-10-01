@@ -123,7 +123,7 @@ export function ThemeEditor({ initial, isNew, onChange, onSave, onCancel }: Prop
           </div>
           {def.pattern.type !== "none" && (
             <>
-              {def.pattern.type !== "snes" && (
+              {def.pattern.type !== "buttons" && (
                 <ColorField
                   label={t("patternColor")}
                   value={def.pattern.color}

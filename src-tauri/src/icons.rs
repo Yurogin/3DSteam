@@ -140,17 +140,27 @@ pub fn refine(games: &mut [Game], app_data_dir: &Path) {
         let Some(path) = game.art.icon.clone() else {
             continue;
         };
-        let Ok(data) = fs::read(&path) else { continue };
+        let lower = path.to_ascii_lowercase();
+        // Un jeu hors Steam sans icône choisie : celle de son exécutable, qu'on ne peut pas
+        // servir tel quel. Elle est toujours réécrite à part.
+        let from_exe = lower.ends_with(".exe");
+        let data = if from_exe { exe_icon(&path) } else { fs::read(&path).ok() };
+        let Some(data) = data else {
+            if from_exe {
+                game.art.icon = None;
+            }
+            continue;
+        };
 
-        if !path.to_ascii_lowercase().ends_with(".ico") {
-            game.art.icon_size = jpeg_width(&data);
+        if !from_exe && !lower.ends_with(".ico") {
+            game.art.icon_size = jpeg_width(&data).or_else(|| png_width(&data));
             continue;
         }
         let list = entries(&data);
         let Some(entry) = best(&list) else { continue };
         let frame = data.get(entry.offset..entry.offset + entry.len).unwrap_or(&[]);
         game.art.icon_size = Some(png_width(frame).unwrap_or(entry.size));
-        if list.len() < 2 {
+        if list.len() < 2 && !from_exe {
             continue;
         }
         if !created {
@@ -167,6 +177,103 @@ pub fn refine(games: &mut [Game], app_data_dir: &Path) {
     }
 }
 
+/// Icône principale d'un exécutable, remise sous forme de `.ico` : le groupe `RT_GROUP_ICON` donne
+/// l'annuaire (14 octets par image, avec un numéro de ressource au lieu d'une position), chaque
+/// image est une ressource `RT_ICON`. Les octets sont recopiés tels quels, comme pour un `.ico`.
+#[cfg(windows)]
+fn exe_icon(path: &str) -> Option<Vec<u8>> {
+    use windows_sys::core::PCWSTR;
+    use windows_sys::Win32::Foundation::{FreeLibrary, BOOL, FALSE, HMODULE};
+    use windows_sys::Win32::System::LibraryLoader::{
+        EnumResourceNamesW, FindResourceW, LoadLibraryExW, LoadResource, LockResource, SizeofResource,
+        LOAD_LIBRARY_AS_DATAFILE, LOAD_LIBRARY_AS_IMAGE_RESOURCE,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{RT_GROUP_ICON, RT_ICON};
+
+    /// Le nom d'une ressource : un numéro, ou un texte qu'il faut recopier pendant l'énumération.
+    enum Name {
+        Id(usize),
+        Text(Vec<u16>),
+    }
+    unsafe extern "system" fn first(_: HMODULE, _: PCWSTR, name: PCWSTR, out: isize) -> BOOL {
+        let out = &mut *(out as *mut Option<Name>);
+        *out = Some(if (name as usize) >> 16 == 0 {
+            Name::Id(name as usize)
+        } else {
+            let len = (0..).take_while(|&i| *name.add(i) != 0).count();
+            Name::Text(std::slice::from_raw_parts(name, len + 1).to_vec())
+        });
+        FALSE
+    }
+    /// Octets d'une ressource, empruntés au module chargé.
+    unsafe fn resource<'a>(module: HMODULE, name: PCWSTR, kind: PCWSTR) -> Option<&'a [u8]> {
+        let found = FindResourceW(module, name, kind);
+        if found.is_null() {
+            return None;
+        }
+        let ptr = LockResource(LoadResource(module, found)) as *const u8;
+        let len = SizeofResource(module, found) as usize;
+        (!ptr.is_null() && len > 0).then(|| std::slice::from_raw_parts(ptr, len))
+    }
+
+    let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    // Chargé comme simple fichier de ressources : rien n'est exécuté.
+    let module = unsafe {
+        LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)
+    };
+    if module.is_null() {
+        return None;
+    }
+    let mut group: Option<Name> = None;
+    let out = unsafe {
+        EnumResourceNamesW(module, RT_GROUP_ICON, Some(first), &mut group as *mut Option<Name> as isize);
+        let name = match &group {
+            Some(Name::Id(id)) => *id as PCWSTR,
+            Some(Name::Text(text)) => text.as_ptr(),
+            None => std::ptr::null(),
+        };
+        let dir = if name.is_null() { None } else { resource(module, name, RT_GROUP_ICON) };
+        dir.and_then(|dir| {
+            let count = u16le(dir, 4)? as usize;
+            let frames: Vec<(&[u8], &[u8])> = (0..count)
+                .filter_map(|i| {
+                    let entry = dir.get(6 + i * 14..6 + i * 14 + 14)?;
+                    let id = u16le(entry, 12)? as usize;
+                    Some((entry, resource(module, id as PCWSTR, RT_ICON)?))
+                })
+                .collect();
+            (!frames.is_empty()).then(|| ico_from(&frames))
+        })
+    };
+    unsafe { FreeLibrary(module) };
+    out
+}
+
+#[cfg(not(windows))]
+fn exe_icon(_: &str) -> Option<Vec<u8>> {
+    None
+}
+
+/// Assemble un `.ico` à partir d'entrées d'annuaire de ressource (14 octets) et de leurs images.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn ico_from(frames: &[(&[u8], &[u8])]) -> Vec<u8> {
+    let mut out = vec![0, 0, 1, 0];
+    out.extend_from_slice(&(frames.len() as u16).to_le_bytes());
+    let mut offset = 6 + 16 * frames.len() as u32;
+    for (entry, data) in frames {
+        // Largeur, hauteur, couleurs, réservé, plans, profondeur : identiques ; puis la longueur
+        // réelle de l'image et sa position dans le fichier, à la place du numéro de ressource.
+        out.extend_from_slice(&entry[..8]);
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+        offset += data.len() as u32;
+    }
+    for (_, data) in frames {
+        out.extend_from_slice(data);
+    }
+    out
+}
+
 /// Supprime les icônes dérivées (bouton « Vider le cache » : elles se réécrivent au scan suivant).
 pub fn clear(app_data_dir: &Path) -> Result<(), String> {
     match fs::remove_dir_all(dir(app_data_dir)) {
@@ -179,6 +286,29 @@ pub fn clear(app_data_dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rebuilds_an_ico_from_resources() {
+        // Deux entrées de ressource : 32 px (numéro 1) et 256 px (numéro 2, écrit 0).
+        let small = [32, 32, 0, 0, 1, 0, 32, 0, 3, 0, 0, 0, 1, 0];
+        let large = [0, 0, 0, 0, 1, 0, 32, 0, 5, 0, 0, 0, 2, 0];
+        let ico = ico_from(&[(&small, b"abc"), (&large, b"defgh")]);
+        let list = entries(&ico);
+        assert_eq!(list.len(), 2);
+        let top = best(&list).unwrap();
+        assert_eq!(top.size, 256);
+        assert_eq!(&ico[top.offset..top.offset + top.len], b"defgh");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn extracts_the_icon_of_an_executable() {
+        let ico = exe_icon(r"C:\Windows\explorer.exe").expect("icône d'explorer.exe");
+        let list = entries(&ico);
+        assert!(!list.is_empty());
+        assert!(best(&list).unwrap().size >= 32);
+        assert!(exe_icon(r"C:\nope\absent.exe").is_none());
+    }
 
     /// `.ico` de trois images factices (16, 48, 32 px), la plus grande au milieu.
     fn sample() -> Vec<u8> {
@@ -282,6 +412,9 @@ mod tests {
             }
         }
         println!("{} jeux, {derivees} icônes réécrites dans {}", games.len(), dir.display());
+        for game in games.iter().filter(|g| g.shortcut) {
+            println!("  hors Steam : {} -> {:?} ({:?} px)", game.name, game.art.icon, game.art.icon_size);
+        }
         for (taille, n) in &par_taille {
             match taille {
                 Some(px) => println!("  {n:3} jeux  ->  {px}x{px} px"),

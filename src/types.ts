@@ -23,6 +23,11 @@ export interface InstalledGame {
   /** Temps de jeu cumulé, en minutes. */
   playtime: number;
   art: GameArt;
+  /**
+   * Jeu hors Steam ajouté à la bibliothèque : `installDir` est son dossier, et il n'a ni
+   * bibliothèque, ni taille, ni page dans le magasin. Visuels uniquement locaux.
+   */
+  shortcut?: boolean;
 }
 
 /** Un jeu que le client Steam connaît mais qui n'est pas installé. */
@@ -39,15 +44,68 @@ export interface CatalogGame {
  */
 export interface Game extends InstalledGame {
   installed: boolean;
+  /** Appli intégrée (journal, musique, album) : rangée comme un jeu, mais ouverte par 3DSteam. */
+  builtin?: BuiltinId;
 }
 
-/** Un téléchargement Steam en cours, lu dans les manifestes. */
+export type BuiltinId = "activity" | "music" | "album" | "profile" | "plaza";
+
+/** Profil Steam du compte actif, lu en local (`profile.rs`). */
+export interface SteamProfile {
+  accountId: number;
+  persona: string;
+  /** Anciens pseudos, du plus récent au plus ancien. */
+  nameHistory: string[];
+  level: number | null;
+  /** Avatar gardé en cache par le client. */
+  avatarFile: string | null;
+  /** Empreinte de l'avatar sur le CDN de Steam. */
+  avatar: string | null;
+}
+
+/** Temps de jeu d'une application, d'après `localconfig.vdf`. */
+export interface Activity {
+  appid: number;
+  lastPlayed: number;
+  /** En minutes. */
+  playtime: number;
+  /** En minutes, sur les deux dernières semaines. */
+  playtime2wks: number;
+}
+
+/** Une piste du lecteur de musique : bande-son Steam ou dossier Musique. */
+export interface Track {
+  path: string;
+  title: string;
+  artist: string | null;
+  album: string;
+  number: number | null;
+  cover: string | null;
+  source: "soundtrack" | "music";
+}
+
+/** Une capture de l'album. */
+export interface Shot {
+  path: string;
+  thumb: string | null;
+  appid: number | null;
+  source: "steam" | "windows" | "gamebar";
+  /** Date de la capture, en secondes. */
+  taken: number;
+}
+
+/** Où en est un téléchargement, d'après le journal de Steam (voir `progress.rs`). */
+export type DownloadPhase = "queued" | "preparing" | "downloading" | "verifying" | "installing" | "paused";
+
+/** Un téléchargement Steam, avec sa progression en direct. */
 export interface Download {
   appid: number;
   name: string;
   bytesDownloaded: number;
   bytesToDownload: number;
-  paused: boolean;
+  /** Débit lissé, en octets par seconde ; nul hors téléchargement actif. */
+  rate: number;
+  phase: DownloadPhase;
 }
 
 export interface Library {

@@ -5,7 +5,7 @@ const MAX_TILE = 240;
 
 /**
  * Taille des cases pour faire tenir exactement `rows` rangées dans la hauteur de la zone de grille
- * (comme le zoom de la 3DS), et nombre de colonnes visibles. Renvoie une ref-callback à poser sur
+ * (comme le zoom d'une console portable), et nombre de colonnes visibles. Renvoie une ref-callback à poser sur
  * le conteneur.
  */
 export function useGridMetrics(rows: number, labelHeight: number, gap: number) {

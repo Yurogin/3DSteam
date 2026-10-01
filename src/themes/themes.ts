@@ -3,7 +3,7 @@ import { load, save } from "../lib/storage";
 import { listThemeFiles } from "../lib/api";
 import type { Lang } from "../lib/i18n";
 import { parseTheme, THEME_VAR_NAMES, themeName, themeVars, type ThemeDef } from "./format";
-import snesRaw from "./builtin/super-nintendo.3dstheme?raw";
+import sixteenBitRaw from "./builtin/seize-bits.3dstheme?raw";
 
 /**
  * Un thème de la liste. Trois origines :
@@ -42,25 +42,26 @@ const seed = (
 
 /** Thèmes CSS d'origine, avec leur équivalent approché au format partageable (pour les dupliquer). */
 const CSS_THEMES: { id: string; dark: boolean; label: Record<Lang, string>; seed: ThemeDef }[] = [
-  { id: "blue3ds", dark: false, label: { fr: "Bleu 3DS", en: "3DS Blue" }, seed: seed("bleu-3ds", false, ["#f3f6fa", "#e4edf7", "#ffffff", "#2b3440", "#1e88e5"], ["dots", "#7d9cc2", 0.35, 22]) },
-  { id: "wiiu", dark: false, label: { fr: "Wii U", en: "Wii U" }, seed: seed("wii-u", false, ["#f7fbfd", "#e3f3f9", "#ffffff", "#34444e", "#00a3d9"], ["grid", "#00a3d9", 0.09, 28], [22, 30, "solid"]) },
-  { id: "switch", dark: false, label: { fr: "Rouge Switch", en: "Switch Red" }, seed: seed("rouge-switch", false, ["#fff7f7", "#ffdfe1", "#ffffff", "#3a2c2c", "#e60012"], ["stripes", "#e60012", 0.05, 28]) },
-  { id: "pikachu", dark: false, label: { fr: "Jaune Pikachu", en: "Pikachu Yellow" }, seed: seed("jaune-pikachu", false, ["#fff4bf", "#ffd84f", "#fffdf2", "#3b3120", "#e0a800"], ["stripes", "#ffffff", 0.28, 36]) },
-  { id: "kirby", dark: false, label: { fr: "Rose Kirby", en: "Kirby Pink" }, seed: seed("rose-kirby", false, ["#fff0f6", "#ffc9df", "#fff8fb", "#4a2e3b", "#ff5fa2"], ["stars", "#ffffff", 0.55, 24], [24, 32, "solid"]) },
-  { id: "hyrule", dark: false, label: { fr: "Hyrule", en: "Hyrule" }, seed: seed("hyrule", false, ["#f1f6e6", "#d3e2b6", "#fbfcf4", "#2b3a25", "#2e7d4f"], ["triangles", "#b8962e", 0.14, 22], [14, 24, "border"]) },
-  { id: "famicom", dark: false, label: { fr: "Famicom", en: "Famicom" }, seed: seed("famicom", false, ["#f7efdc", "#e6d6b3", "#fffaf0", "#3d2a1e", "#a4282b"], ["lines", "#a4282b", 0.07, 16], [10, 14, "border"]) },
+  { id: "sky", dark: false, label: { fr: "Bleu ciel", en: "Sky Blue" }, seed: seed("bleu-ciel", false, ["#f3f6fa", "#e4edf7", "#ffffff", "#2b3440", "#1e88e5"], ["dots", "#7d9cc2", 0.35, 22]) },
+  { id: "frost", dark: false, label: { fr: "Givre", en: "Frost" }, seed: seed("givre", false, ["#f7fbfd", "#e3f3f9", "#ffffff", "#34444e", "#00a3d9"], ["grid", "#00a3d9", 0.09, 28], [22, 30, "solid"]) },
+  { id: "cherry", dark: false, label: { fr: "Rouge cerise", en: "Cherry Red" }, seed: seed("rouge-cerise", false, ["#fff7f7", "#ffdfe1", "#ffffff", "#3a2c2c", "#e60012"], ["stripes", "#e60012", 0.05, 28]) },
+  { id: "lemon", dark: false, label: { fr: "Jaune citron", en: "Lemon Yellow" }, seed: seed("jaune-citron", false, ["#fff4bf", "#ffd84f", "#fffdf2", "#3b3120", "#e0a800"], ["stripes", "#ffffff", 0.28, 36]) },
+  { id: "candy", dark: false, label: { fr: "Rose bonbon", en: "Candy Pink" }, seed: seed("rose-bonbon", false, ["#fff0f6", "#ffc9df", "#fff8fb", "#4a2e3b", "#ff5fa2"], ["stars", "#ffffff", 0.55, 24], [24, 32, "solid"]) },
+  { id: "forest", dark: false, label: { fr: "Forêt enchantée", en: "Enchanted Forest" }, seed: seed("foret-enchantee", false, ["#f1f6e6", "#d3e2b6", "#fbfcf4", "#2b3a25", "#2e7d4f"], ["triangles", "#b8962e", 0.14, 22], [14, 24, "border"]) },
+  { id: "retro", dark: false, label: { fr: "Rétro crème", en: "Retro Cream" }, seed: seed("retro-creme", false, ["#f7efdc", "#e6d6b3", "#fffaf0", "#3d2a1e", "#a4282b"], ["lines", "#a4282b", 0.07, 16], [10, 14, "border"]) },
   { id: "sunset", dark: false, label: { fr: "Coucher de soleil", en: "Sunset" }, seed: seed("coucher-de-soleil", false, ["#ffd29b", "#9a6ad6", "#ffffff", "#3a2346", "#ff4f73"], null, [18, 24, "glass"]) },
-  { id: "gameboy", dark: false, label: { fr: "Game Boy", en: "Game Boy" }, seed: seed("game-boy", false, ["#cadc9f", "#b4c887", "#d6e4ad", "#0f380f", "#306230"], ["checker", "#0f380f", 0.06, 16], [6, 10, "border"]) },
+  { id: "pocket", dark: false, label: { fr: "Écran de poche", en: "Pocket Screen" }, seed: seed("ecran-de-poche", false, ["#cadc9f", "#b4c887", "#d6e4ad", "#0f380f", "#306230"], ["checker", "#0f380f", 0.06, 16], [6, 10, "border"]) },
   { id: "night", dark: true, label: { fr: "Nuit douce", en: "Soft Night" }, seed: seed("nuit-douce", true, ["#1f2435", "#141724", "#272c3e", "#e7eaf3", "#8ab4ff"], ["dots", "#3a4260", 1, 22]) },
-  { id: "neon", dark: true, label: { fr: "Switch Néon", en: "Switch Neon" }, seed: seed("switch-neon", true, ["#26272b", "#1b1c1f", "#33353b", "#f2f2f4", "#ff3c28"], ["dots", "#ffffff", 0.06, 20]) },
-  { id: "gamecube", dark: true, label: { fr: "GameCube", en: "GameCube" }, seed: seed("gamecube", true, ["#3b3783", "#1f1c52", "#433e96", "#f1efff", "#b9a8ff"], ["grid", "#ffffff", 0.05, 32], [16, 24, "solid"]) },
-  { id: "virtualboy", dark: true, label: { fr: "Virtual Boy", en: "Virtual Boy" }, seed: seed("virtual-boy", true, ["#1c0202", "#000000", "#1c0404", "#ff4040", "#ff1f1f"], ["scanlines", "#ff1414", 0.07, 24], [8, 12, "border"]) },
+  { id: "neon", dark: true, label: { fr: "Néon", en: "Neon" }, seed: seed("neon", true, ["#26272b", "#1b1c1f", "#33353b", "#f2f2f4", "#ff3c28"], ["dots", "#ffffff", 0.06, 20]) },
+  { id: "indigo", dark: true, label: { fr: "Indigo", en: "Indigo" }, seed: seed("indigo", true, ["#3b3783", "#1f1c52", "#433e96", "#f1efff", "#b9a8ff"], ["grid", "#ffffff", 0.05, 32], [16, 24, "solid"]) },
+  { id: "scarlet", dark: true, label: { fr: "Écarlate", en: "Scarlet" }, seed: seed("ecarlate", true, ["#1c0202", "#000000", "#1c0404", "#ff4040", "#ff1f1f"], ["scanlines", "#ff1414", 0.07, 24], [8, 12, "border"]) },
 ];
 
 /** Thèmes livrés directement au format `.3dstheme` (ils servent aussi d'exemples). */
-const BUILTIN_DEFS: ThemeDef[] = [snesRaw].map((raw) => parseTheme(raw)).filter((d): d is ThemeDef => d != null);
+const BUILTIN_DEFS: ThemeDef[] = [sixteenBitRaw].map((raw) => parseTheme(raw)).filter((d): d is ThemeDef => d != null);
 
-export const DEFAULT_THEME = "blue3ds";
+export const DEFAULT_THEME = "sky";
+
 const defId = (def: ThemeDef) => `def:${def.id}`;
 
 const cssEntries: ThemeEntry[] = CSS_THEMES.map((t) => ({

@@ -18,12 +18,14 @@
         "minWidth": 720,
         "minHeight": 520,
         "center": true,
+        "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required",
         "backgroundColor": "#f8f9fa",
         "dragDropEnabled": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https://*.steamstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https://*.steamstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' asset: http://asset.localhost blob: https://*.steamstatic.com; connect-src ipc: http://ipc.localhost https://*.steamstatic.com",
       "devCsp": null,
       "assetProtocol": {
         "enable": true,

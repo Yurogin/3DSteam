@@ -42,6 +42,10 @@ pub struct Game {
     /// Temps de jeu cumulé, en minutes, lu dans `localconfig.vdf`.
     pub playtime: u64,
     pub art: GameArt,
+    /// Jeu hors Steam ajouté à la bibliothèque (voir `shortcuts.rs`) : `install_dir` est alors
+    /// son dossier, et il n'a ni bibliothèque, ni taille, ni page dans le magasin.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shortcut: bool,
 }
 
 /// Un jeu que le client connaît mais qui n'est pas installé : juste de quoi l'afficher.
@@ -60,6 +64,35 @@ struct Usage {
     last_played: u64,
     /// En minutes.
     playtime: u64,
+    /// En minutes, sur les deux dernières semaines.
+    playtime_2wks: u64,
+}
+
+/// Le temps de jeu d'une application, pour le journal d'activité.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub appid: u32,
+    pub last_played: u64,
+    /// En minutes.
+    pub playtime: u64,
+    /// En minutes, sur les deux dernières semaines.
+    pub playtime_2wks: u64,
+}
+
+/// Tout ce que le compte a lancé, avec son temps de jeu. Relu à chaque appel : le journal
+/// d'activité veut des chiffres frais.
+pub fn activity(steam_root: &Path) -> Vec<Activity> {
+    seen_apps(steam_root)
+        .into_iter()
+        .filter(|(appid, usage)| usage.playtime > 0 && !HIDDEN_APPIDS.contains(appid))
+        .map(|(appid, u)| Activity { appid, last_played: u.last_played, playtime: u.playtime, playtime_2wks: u.playtime_2wks })
+        .collect()
+}
+
+/// Dossier `userdata/<compte>` du compte actif : ses captures d'écran y sont rangées.
+pub fn user_dir(steam_root: &Path) -> Option<PathBuf> {
+    active_user_dir(steam_root).or_else(|| newest_user_dir(steam_root))
 }
 
 /// Résultat d'un scan : ce qui est installé, et ce que le client connaît en plus.
@@ -69,7 +102,7 @@ pub struct Scan {
 }
 
 /// Écart entre un SteamID64 et le numéro de dossier dans `userdata`.
-const STEAM_ID_BASE: u64 = 76_561_197_960_265_728;
+pub(crate) const STEAM_ID_BASE: u64 = 76_561_197_960_265_728;
 
 /// Outils Steam installés comme des « jeux » mais qu'on ne veut pas voir dans la grille.
 const HIDDEN_APPIDS: &[u32] = &[228980, 1070560, 1391110, 1628350, 1826330, 2180100];
@@ -182,10 +215,11 @@ fn parse_manifest(path: &Path, library: &Path) -> Option<Game> {
         // Rempli après coup : le temps de jeu vit dans la configuration du compte, pas ici.
         playtime: 0,
         art: GameArt::default(),
+        shortcut: false,
     })
 }
 
-fn is_hidden(appid: u32, name: &str) -> bool {
+pub fn is_hidden(appid: u32, name: &str) -> bool {
     HIDDEN_APPIDS.contains(&appid) || HIDDEN_PREFIXES.iter().any(|p| name.starts_with(p))
 }
 
@@ -274,21 +308,33 @@ fn client_icons(
         .collect()
 }
 
-/// Dossier `userdata` du compte le plus récemment utilisé, d'après `loginusers.vdf`.
-fn active_user_dir(steam_root: &Path) -> Option<PathBuf> {
+/// Le compte le plus récemment utilisé, d'après `loginusers.vdf` : son SteamID64 et son pseudo.
+pub(crate) fn active_user(steam_root: &Path) -> Option<(u64, String)> {
     let text = fs::read_to_string(steam_root.join("config").join("loginusers.vdf")).ok()?;
     let doc = vdf::parse(&text).ok()?;
     // Le tri porte sur le tuple : `MostRecent` d'abord, puis l'horodatage le plus grand.
-    let (_, _, id64) = doc
+    let (_, _, id64, persona) = doc
         .get("users")?
         .entries()
         .iter()
         .filter_map(|(id, user)| {
             let id64: u64 = id.trim().parse().ok()?;
             let recent = user.get_str("MostRecent").is_some_and(|v| v == "1");
-            Some((recent, user.get_u64("Timestamp").unwrap_or(0), id64))
+            let persona = user.get_str("PersonaName").unwrap_or_default().trim().to_owned();
+            Some((recent, user.get_u64("Timestamp").unwrap_or(0), id64, persona))
         })
         .max()?;
+    Some((id64, persona))
+}
+
+/// Pseudo Steam du compte actif : le nom proposé par défaut pour le profil.
+pub fn persona_name(steam_root: &Path) -> Option<String> {
+    active_user(steam_root).map(|(_, name)| name).filter(|name| !name.is_empty())
+}
+
+/// Dossier `userdata` du compte le plus récemment utilisé.
+fn active_user_dir(steam_root: &Path) -> Option<PathBuf> {
+    let (id64, _) = active_user(steam_root)?;
     let dir = steam_root.join("userdata").join(id64.checked_sub(STEAM_ID_BASE)?.to_string());
     dir.is_dir().then_some(dir)
 }
@@ -314,7 +360,7 @@ fn newest_user_dir(steam_root: &Path) -> Option<PathBuf> {
 /// possédés jamais ouverts. C'est approximatif, mais local, instantané et sans clé d'API.
 fn seen_apps(steam_root: &Path) -> HashMap<u32, Usage> {
     let mut out = HashMap::new();
-    let Some(dir) = active_user_dir(steam_root).or_else(|| newest_user_dir(steam_root)) else {
+    let Some(dir) = user_dir(steam_root) else {
         return out;
     };
     let Ok(text) = fs::read_to_string(dir.join("config").join("localconfig.vdf")) else {
@@ -337,6 +383,7 @@ fn seen_apps(steam_root: &Path) -> HashMap<u32, Usage> {
                 Usage {
                     last_played: app.get_u64("LastPlayed").unwrap_or(0),
                     playtime: app.get_u64("Playtime").unwrap_or(0),
+                    playtime_2wks: app.get_u64("Playtime2wks").unwrap_or(0),
                 },
             );
         }
@@ -416,42 +463,49 @@ pub fn scan(steam_root: &Path) -> Scan {
         }
     }
 
-    games.sort_by(|a, b| {
-        b.last_played
-            .cmp(&a.last_played)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
     // Le temps de jeu n'est pas dans les manifestes : il vit dans la configuration du compte.
     let usage = seen_apps(steam_root);
     for game in &mut games {
         game.playtime = usage.get(&game.appid).map_or(0, |u| u.playtime);
     }
     let catalog = catalog(&apps, &usage, &appids);
+    // Les jeux hors Steam ajoutés à la bibliothèque, rangés avec les autres.
+    if let Some(user) = user_dir(steam_root) {
+        games.extend(crate::shortcuts::games(&user).into_iter().filter(|g| seen.insert(g.appid)));
+    }
+    games.sort_by(|a, b| {
+        b.last_played
+            .cmp(&a.last_played)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
     Scan { games, catalog }
 }
 
-/// Lance un jeu via le protocole `steam://run/<appid>` (Steam gère mises à jour et DRM).
 /// Bits de `StateFlags` qui signalent une installation ou une mise à jour : requise (2), en file
 /// (8), en cours (256), en pause (512), démarrée (1024).
 const STATE_UPDATING: u64 = 2 | 8 | 256 | 512 | 1024;
 /// Bit de mise en pause.
-const STATE_PAUSED: u64 = 512;
+pub const STATE_PAUSED: u64 = 512;
+/// Bit de mise à jour en cours.
+pub const STATE_RUNNING: u64 = 256;
 
-/// Un téléchargement en cours, lu dans les manifestes.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Download {
+/// Un téléchargement en attente ou en cours, tel que son manifeste le décrit. Ces compteurs ne
+/// sont réécrits par Steam que de loin en loin : `progress.rs` en tire une progression en direct.
+#[derive(Debug, Clone)]
+pub struct Pending {
     pub appid: u32,
     pub name: String,
-    pub bytes_downloaded: u64,
-    pub bytes_to_download: u64,
-    pub paused: bool,
+    pub flags: u64,
+    pub downloaded: u64,
+    pub to_download: u64,
+    /// Octets décompressés et écrits dans `downloading/`, et leur total.
+    pub staged: u64,
+    pub to_stage: u64,
 }
 
-/// Les téléchargements en cours, toutes bibliothèques confondues. Steam tient ces compteurs à
-/// jour dans les manifestes : quelques petits fichiers à relire, l'interface peut interroger
-/// souvent sans coût notable.
-pub fn downloads(steam_root: &Path) -> Vec<Download> {
+/// Les téléchargements en attente ou en cours, toutes bibliothèques confondues : quelques petits
+/// fichiers à relire, l'interface peut interroger souvent sans coût notable.
+pub fn pending(steam_root: &Path) -> Vec<Pending> {
     let mut out = Vec::new();
     for steamapps in library_folders(steam_root) {
         let Ok(entries) = fs::read_dir(&steamapps) else {
@@ -482,12 +536,14 @@ pub fn downloads(steam_root: &Path) -> Vec<Download> {
             let Some(appid) = app.get_u64("appid") else {
                 continue;
             };
-            out.push(Download {
+            out.push(Pending {
                 appid: appid as u32,
                 name: app.get_str("name").unwrap_or_default().to_owned(),
-                bytes_downloaded: app.get_u64("BytesDownloaded").unwrap_or(0),
-                bytes_to_download: app.get_u64("BytesToDownload").unwrap_or(0),
-                paused: flags & STATE_PAUSED != 0,
+                flags,
+                downloaded: app.get_u64("BytesDownloaded").unwrap_or(0),
+                to_download: app.get_u64("BytesToDownload").unwrap_or(0),
+                staged: app.get_u64("BytesStaged").unwrap_or(0),
+                to_stage: app.get_u64("BytesToStage").unwrap_or(0),
             });
         }
     }
@@ -500,8 +556,44 @@ pub fn install(appid: u32) -> Result<(), String> {
     open_uri(&format!("steam://install/{appid}"))
 }
 
+/// Ouvre la boîte de désinstallation de Steam : c'est lui qui demande confirmation.
+pub fn uninstall(appid: u32) -> Result<(), String> {
+    open_uri(&format!("steam://uninstall/{appid}"))
+}
+
+/// Un jeu hors Steam se lance par son identifiant 64 bits : Steam l'ouvre quand même, avec son
+/// overlay et le suivi de ses processus.
 pub fn launch(appid: u32) -> Result<(), String> {
+    if crate::shortcuts::is_shortcut(appid) {
+        return open_uri(&format!("steam://rungameid/{}", crate::shortcuts::game_id(appid)));
+    }
     open_uri(&format!("steam://run/{appid}"))
+}
+
+/// Page du jeu dans le magasin, dans le client.
+pub fn open_store(appid: u32) -> Result<(), String> {
+    open_uri(&format!("steam://store/{appid}"))
+}
+
+/// Ferme le client proprement.
+pub fn exit() -> Result<(), String> {
+    open_uri("steam://exit")
+}
+
+/// Liste des téléchargements du client : pause, reprise, ordre de la file.
+pub fn open_downloads() -> Result<(), String> {
+    open_uri("steam://open/downloads")
+}
+
+/// Dossier d'un jeu installé, à partir de sa bibliothèque et de son `installdir`. Rien d'autre
+/// qu'un dossier existant sous `steamapps/common` n'est accepté.
+pub fn game_dir(library_path: &str, install_dir: &str) -> Option<PathBuf> {
+    let plain = !install_dir.is_empty()
+        && !install_dir.contains(['/', '\\'])
+        && install_dir != "."
+        && install_dir != "..";
+    let dir = Path::new(library_path).join("steamapps").join("common").join(install_dir);
+    (plain && dir.is_dir()).then_some(dir)
 }
 
 fn open_uri(uri: &str) -> Result<(), String> {

@@ -18,7 +18,7 @@
 import { contrast, hexToRgb, isHex, mix, rgba } from "./color";
 import type { Lang } from "../lib/i18n";
 
-export const PATTERNS = ["none", "dots", "stripes", "grid", "checker", "stars", "triangles", "lines", "scanlines", "snes"] as const;
+export const PATTERNS = ["none", "dots", "stripes", "grid", "checker", "stars", "triangles", "lines", "scanlines", "buttons"] as const;
 export type PatternType = (typeof PATTERNS)[number];
 export const PANEL_STYLES = ["solid", "glass", "border"] as const;
 export type PanelStyle = (typeof PANEL_STYLES)[number];
@@ -120,8 +120,8 @@ function patternLayer({ type, color, opacity, size: s }: ThemeDef["pattern"]): [
       return [svg(`<path d='M12 4l2.4 5 5.4.6-4 3.7 1.1 5.3L12 16l-4.9 2.6 1.1-5.3-4-3.7 5.4-.6z' ${fill}/><circle cx='36' cy='34' r='2.2' ${fill}/>`, 48, 48), `${s * 2}px ${s * 2}px`];
     case "triangles":
       return [svg(`<path d='M28 10l6 10H22zM22 20l6 10H16zM34 20l6 10H28z' ${fill}/>`, 56, 48), `${s * 2.5}px ${s * 2.1}px`];
-    case "snes": {
-      // Les quatre boutons colorés de la Super Famicom, disposés en losange.
+    case "buttons": {
+      // Quatre boutons colorés de manette, disposés en losange.
       const dot = (cx: number, cy: number, col: string) => `<circle cx='${cx}' cy='${cy}' r='3.2' fill='${col}' fill-opacity='${opacity}'/>`;
       return [svg(dot(24, 14, "#3b5fc9") + dot(14, 24, "#2e9e57") + dot(34, 24, "#d9322f") + dot(24, 34, "#f0b400"), 48, 48), `${s * 2.2}px ${s * 2.2}px`];
     }

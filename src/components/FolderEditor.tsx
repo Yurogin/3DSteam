@@ -42,7 +42,8 @@ export function FolderEditor({ folder, games, isNew, onSave, onCancel }: Props) 
       <motion.form
         role="dialog"
         aria-label={isNew ? t("newFolder") : t("editFolder")}
-        className="w-full max-w-md rounded-panel bg-surface p-6 shadow-pop"
+        // Jamais plus haute que la fenêtre : au-delà, elle défile, boutons compris.
+        className="soft-scroll max-h-[calc(100vh-24px)] w-full max-w-md overflow-y-auto rounded-panel bg-surface p-6 shadow-pop"
         initial={{ scale: 0.9, y: 16 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.95, y: 8 }}

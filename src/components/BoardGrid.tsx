@@ -18,7 +18,7 @@ interface Props {
   tileSize: number;
   gap: number;
   labelHeight: number;
-  /** Case sous le curseur (peut être vide, comme sur 3DS). */
+  /** Case sous le curseur (elle peut être vide). */
   cursor: number;
   /** Glisser-déposer autorisé (désactivé pendant une recherche). */
   editable: boolean;
@@ -35,6 +35,14 @@ interface Props {
   showCursor: boolean;
   /** Téléchargements en cours, par appid. */
   downloads: Map<number, Download>;
+  /** Jeux qui viennent de s'installer. */
+  ready: Set<number>;
+  /** Jeux qui viennent d'être désinstallés, le temps que leur tuile vole en éclats. */
+  leaving: Set<number>;
+  /** Jeux qui tournent en ce moment. */
+  running: Set<number>;
+  /** Clic droit sur une case (jeu, dossier ou case vide) : menu d'actions au pointeur. */
+  onMenu: (index: number, x: number, y: number) => void;
 }
 
 interface Drag {
@@ -80,7 +88,7 @@ function LiftedVisual({ item, size }: { item: NonNullable<ViewItem>; size: numbe
  * la souris à l'endroit exact où on l'a prise, puis se pose en douceur dans sa case d'arrivée.
  */
 export function BoardGrid(props: Props) {
-  const { items, rows, tileSize, gap, labelHeight, cursor, editable, onCursor, onActivate, held, showCursor, downloads } = props;
+  const { items, rows, tileSize, gap, labelHeight, cursor, editable, onCursor, onActivate, held, showCursor, downloads, ready, leaving, running, onMenu } = props;
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   /** Icône qui vient d'être posée : on coupe son animation de trajet (elle est déjà sur place). */
@@ -294,7 +302,15 @@ export function BoardGrid(props: Props) {
           const label = item?.kind === "game" ? item.game.name : item?.kind === "folder" ? item.folder.name : "";
           const key = item ? itemKey(item) : null;
           return (
-            <div key={index} data-slot={index} onPointerDown={(e) => onPointerDown(e, index)}>
+            <div
+              key={index}
+              data-slot={index}
+              onPointerDown={(e) => onPointerDown(e, index)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (!moving) onMenu(index, e.clientX, e.clientY);
+              }}
+            >
               <div data-square className="relative aspect-square">
                 {/* Emplacement : discret au repos, visible pendant un déplacement ou sous le curseur. */}
                 <div
@@ -326,6 +342,9 @@ export function BoardGrid(props: Props) {
                     lifted={lifted}
                     animateLayout={justDropped !== key && heldKey !== key}
                     download={downloads.get(item.game.appid)}
+                    ready={ready.has(item.game.appid)}
+                    leaving={leaving.has(item.game.appid)}
+                    running={running.has(item.game.appid)}
                     onSelect={onCursor}
                     onLaunch={onActivate}
                   />

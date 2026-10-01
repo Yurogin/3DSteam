@@ -2,8 +2,22 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ThemeApi, ThemeEntry } from "../themes/themes";
 import { parseTheme, serializeTheme, slug, themeName, themeStyle, type ThemeDef } from "../themes/format";
-import { openThemesDir, saveThemeFile } from "../lib/api";
-import { LANGS, useI18n } from "../lib/i18n";
+import {
+  openThemesDir,
+  restartSteam,
+  saveThemeFile,
+  setAutostart,
+  setStartupMode,
+  setSteamControl,
+  startupSettings,
+  steamControlState,
+  type StartupMode,
+  type StartupSettings,
+  type SteamControl,
+} from "../lib/api";
+import { LANGS, useI18n, type TFunction } from "../lib/i18n";
+import { load, save } from "../lib/storage";
+import { menuMusic } from "../lib/menuMusic";
 import { sound } from "../lib/sound";
 import { placedGames } from "../lib/board";
 import type { CursorStyle } from "../lib/cursorStyle";
@@ -11,7 +25,7 @@ import { useIconStyle } from "../lib/iconStyle";
 import type { Preset } from "../lib/presets";
 import { ControlsTab } from "./ControlsTab";
 
-export type Tab = "theme" | "presets" | "controls" | "language" | "general" | "data";
+export type Tab = "theme" | "appearance" | "sound" | "language" | "startup" | "steam" | "controls" | "presets" | "data";
 
 interface Props {
   themes: ThemeApi;
@@ -40,7 +54,102 @@ interface Props {
   onClose: () => void;
 }
 
-/** Fenêtre des paramètres : thème, sauvegardes, langue, sons / plein écran, réinitialisations. */
+/** Onglets, rangés en trois groupes : ce qui se voit et s'entend, le système, les données. */
+const GROUPS: { label: Parameters<TFunction>[0]; tabs: { id: Tab; label: Parameters<TFunction>[0] }[] }[] = [
+  {
+    label: "settingsGroupPersonal",
+    tabs: [
+      { id: "theme", label: "tabTheme" },
+      { id: "appearance", label: "tabAppearance" },
+      { id: "sound", label: "tabSound" },
+      { id: "language", label: "tabLanguage" },
+    ],
+  },
+  {
+    label: "settingsGroupSystem",
+    tabs: [
+      { id: "startup", label: "tabStartup" },
+      { id: "steam", label: "tabSteam" },
+      { id: "controls", label: "tabControls" },
+    ],
+  },
+  {
+    label: "settingsGroupData",
+    tabs: [
+      { id: "presets", label: "tabPresets" },
+      { id: "data", label: "tabData" },
+    ],
+  },
+];
+
+/** Pictogramme d'un onglet, au trait, dans la couleur du texte. */
+function TabIcon({ id }: { id: Tab }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  return (
+    <svg viewBox="0 0 24 24" width={18} height={18} aria-hidden {...common}>
+      {id === "appearance" && (
+        <>
+          <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
+          <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
+          <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
+          <circle cx="17" cy="17" r="3.6" />
+        </>
+      )}
+      {id === "theme" && (
+        <>
+          <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.9.7-1.5 1.6-1.5H16a5 5 0 0 0 5-5c0-4.2-4-7.8-9-7.8Z" />
+          <circle cx="7.5" cy="11" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="10.5" cy="7.2" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="15" cy="7.8" r="1.2" fill="currentColor" stroke="none" />
+        </>
+      )}
+      {id === "sound" && (
+        <>
+          <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4Z" />
+          <path d="M15.5 9a4 4 0 0 1 0 6" />
+          <path d="M18 6.5a7.5 7.5 0 0 1 0 11" />
+        </>
+      )}
+      {id === "language" && (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18" />
+          <path d="M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3Z" />
+        </>
+      )}
+      {id === "startup" && (
+        <>
+          <path d="M12 3.5v8" />
+          <path d="M6.6 6.8a7.5 7.5 0 1 0 10.8 0" />
+        </>
+      )}
+      {id === "steam" && (
+        <>
+          <path d="M12 4v11" />
+          <path d="m7 10.5 5 4.5 5-4.5" />
+          <path d="M5 19.5h14" />
+        </>
+      )}
+      {id === "controls" && (
+        <>
+          <rect x="2.5" y="7" width="19" height="11" rx="5.5" />
+          <path d="M8 10.5v4M6 12.5h4" />
+          <circle cx="15.5" cy="11.2" r="1" fill="currentColor" stroke="none" />
+          <circle cx="17.8" cy="13.8" r="1" fill="currentColor" stroke="none" />
+        </>
+      )}
+      {id === "presets" && <path d="M7 3.5h10v17l-5-3.6-5 3.6v-17Z" />}
+      {id === "data" && (
+        <>
+          <path d="M4 12a8 8 0 1 0 2.4-5.7" />
+          <path d="M4 4.5v4h4" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** Fenêtre des paramètres, en onglets rangés par groupes (voir `GROUPS`). */
 export function SettingsModal(props: Props) {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>(props.initialTab ?? "theme");
@@ -49,15 +158,6 @@ export function SettingsModal(props: Props) {
   useEffect(() => {
     dialogRef.current?.focus();
   }, []);
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "theme", label: t("tabTheme") },
-    { id: "presets", label: t("tabPresets") },
-    { id: "controls", label: t("tabControls") },
-    { id: "language", label: t("tabLanguage") },
-    { id: "general", label: t("tabGeneral") },
-    { id: "data", label: t("tabData") },
-  ];
 
   return (
     <motion.div
@@ -85,31 +185,39 @@ export function SettingsModal(props: Props) {
         }}
       >
         {/* Onglets */}
-        <nav data-nav-zone className="flex w-48 shrink-0 flex-col gap-1 bg-surface-2 p-4">
-          <p className="mb-3 px-3 text-lg font-black">{t("settings")}</p>
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-current={tab === item.id ? "page" : undefined}
-              onMouseEnter={() => sound.hover()}
-              onClick={() => {
-                if (item.id !== tab) sound.move();
-                setTab(item.id);
-              }}
-              className={`relative rounded-full px-4 py-2 text-left text-sm font-extrabold transition-colors ${
-                tab === item.id ? "text-on-accent" : "text-muted hover:text-ink"
-              }`}
-            >
-              {tab === item.id && (
-                <motion.span
-                  layoutId="settings-tab"
-                  className="absolute inset-0 rounded-full bg-accent"
-                  transition={{ type: "spring", stiffness: 500, damping: 36 }}
-                />
-              )}
-              <span className="relative">{item.label}</span>
-            </button>
+        <nav data-nav-zone className="soft-scroll flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto bg-surface-2 p-4">
+          <p className="mb-1 px-3 text-lg font-black">{t("settings")}</p>
+          {GROUPS.map((group) => (
+            <div key={group.label} className="flex flex-col gap-0.5">
+              <p className="mt-3 px-4 pb-1 text-[11px] font-black uppercase tracking-wider text-muted/80">{t(group.label)}</p>
+              {group.tabs.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={tab === item.id ? "page" : undefined}
+                  onMouseEnter={() => sound.hover()}
+                  onClick={() => {
+                    if (item.id !== tab) sound.move();
+                    setTab(item.id);
+                  }}
+                  className={`relative rounded-full px-4 py-2 text-left text-sm font-extrabold transition-colors ${
+                    tab === item.id ? "text-on-accent" : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {tab === item.id && (
+                    <motion.span
+                      layoutId="settings-tab"
+                      className="absolute inset-0 rounded-full bg-accent"
+                      transition={{ type: "spring", stiffness: 500, damping: 36 }}
+                    />
+                  )}
+                  <span className="relative flex items-center gap-2.5">
+                    <TabIcon id={item.id} />
+                    {t(item.label)}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
           <button
             type="button"
@@ -131,10 +239,13 @@ export function SettingsModal(props: Props) {
               transition={{ duration: 0.15 }}
             >
               {tab === "theme" && <ThemeTab {...props} />}
-              {tab === "presets" && <PresetsTab {...props} />}
-              {tab === "controls" && <ControlsTab />}
+              {tab === "appearance" && <AppearanceTab {...props} />}
+              {tab === "sound" && <SoundTab {...props} />}
               {tab === "language" && <LanguageTab />}
-              {tab === "general" && <GeneralTab {...props} />}
+              {tab === "startup" && <StartupTab {...props} />}
+              {tab === "steam" && <SteamTab {...props} />}
+              {tab === "controls" && <ControlsTab />}
+              {tab === "presets" && <PresetsTab {...props} />}
               {tab === "data" && <DataTab {...props} />}
             </motion.div>
           </AnimatePresence>
@@ -299,7 +410,7 @@ function ActionButton({ children, onClick, primary, title }: { children: ReactNo
 /** Mini maquette de l'interface dans les couleurs, le fond et les formes du thème. */
 function ThemePreview({ entry }: { entry?: ThemeEntry }) {
   // Thème CSS : attribut data-theme ; thème au format : ses variables en ligne.
-  const attrs = entry?.def ? { "data-theme": "custom", style: themeStyle(entry.def) } : { "data-theme": entry?.css ?? "blue3ds" };
+  const attrs = entry?.def ? { "data-theme": "custom", style: themeStyle(entry.def) } : { "data-theme": entry?.css ?? "sky" };
   return (
     <div {...attrs} className="theme-bg relative h-28 overflow-hidden rounded-[16px] p-2">
       <div className="mx-auto mb-1.5 h-2 w-12 rounded-full bg-surface" />
@@ -403,44 +514,11 @@ const CURSOR_OPTIONS = [
   { id: "none", label: "cursorNone" },
 ] as const;
 
-function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cursorStyle, onCursorStyle, padMouse, onTogglePadMouse }: Props) {
+/** Apparence : comment les icônes et le curseur s'affichent dans la grille. */
+function AppearanceTab({ cursorStyle, onCursorStyle }: Props) {
   const { t } = useI18n();
-  const [volume, setVolume] = useState(sound.volume);
   return (
     <>
-      <Section title={t("sounds")} description={t("soundsDesc")}>
-        <div className="space-y-3 rounded-2xl bg-surface-2 p-4">
-          <Toggle label={t("sounds")} on={soundOn} onChange={onToggleSound} />
-          <label className={`flex items-center gap-4 ${soundOn ? "" : "opacity-40"}`}>
-            <span className="w-24 text-sm font-extrabold">{t("volume")}</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={Math.round(volume * 100)}
-              disabled={!soundOn}
-              onChange={(e) => {
-                const v = Number(e.target.value) / 100;
-                setVolume(v);
-                sound.setVolume(v);
-              }}
-              onPointerUp={() => sound.select()}
-              className="flex-1 accent-(--accent)"
-            />
-            <span className="w-10 text-right text-sm font-bold tabular-nums text-muted">{Math.round(volume * 100)}</span>
-          </label>
-        </div>
-      </Section>
-      <Section title={t("fullscreen")} description={t("fullscreenDesc")}>
-        <div className="rounded-2xl bg-surface-2 p-4">
-          <Toggle label={t("fullscreen")} on={fullscreen} onChange={onToggleFullscreen} />
-        </div>
-      </Section>
-      <Section title={t("install")} description={t("padMouseDesc")}>
-        <div className="rounded-2xl bg-surface-2 p-4">
-          <Toggle label={t("padMouse")} on={padMouse} onChange={onTogglePadMouse} />
-        </div>
-      </Section>
       <IconStyleSection />
       <Section title={t("cursorStyle")} description={t("cursorStyleDesc")}>
         <div className="grid grid-cols-5 gap-2 rounded-2xl bg-surface-2 p-4">
@@ -468,6 +546,289 @@ function GeneralTab({ soundOn, onToggleSound, fullscreen, onToggleFullscreen, cu
         </div>
       </Section>
     </>
+  );
+}
+
+/** Son : les bruitages de l'interface et la musique du menu. */
+function SoundTab({ soundOn, onToggleSound }: Props) {
+  const { t } = useI18n();
+  const [volume, setVolume] = useState(sound.volume);
+  return (
+    <>
+      <Section title={t("soundEffects")} description={t("soundsDesc")}>
+        <div className="space-y-3 rounded-2xl bg-surface-2 p-4">
+          <Toggle label={t("soundEffects")} on={soundOn} onChange={onToggleSound} />
+          <label className={`flex items-center gap-4 ${soundOn ? "" : "opacity-40"}`}>
+            <span className="w-24 text-sm font-extrabold">{t("volume")}</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(volume * 100)}
+              disabled={!soundOn}
+              onChange={(e) => {
+                const v = Number(e.target.value) / 100;
+                setVolume(v);
+                sound.setVolume(v);
+              }}
+              onPointerUp={() => sound.select()}
+              className="flex-1 accent-(--accent)"
+            />
+            <span className="w-10 text-right text-sm font-bold tabular-nums text-muted">{Math.round(volume * 100)}</span>
+          </label>
+        </div>
+      </Section>
+      <MusicSection />
+    </>
+  );
+}
+
+/** Démarrage : comment s'ouvre 3DSteam, le plein écran, et ce qu'il fait quand un jeu démarre. */
+function StartupTab({ fullscreen, onToggleFullscreen }: Props) {
+  const { t } = useI18n();
+  return (
+    <>
+      <StartupSection />
+      <Section title={t("fullscreen")} description={t("fullscreenDesc")}>
+        <div className="rounded-2xl bg-surface-2 p-4">
+          <Toggle label={t("fullscreen")} on={fullscreen} onChange={onToggleFullscreen} />
+        </div>
+      </Section>
+      <LaunchSection />
+    </>
+  );
+}
+
+/** Steam : installer à la manette, et piloter les téléchargements depuis 3DSteam. */
+function SteamTab({ padMouse, onTogglePadMouse }: Props) {
+  const { t } = useI18n();
+  return (
+    <>
+      <Section title={t("padMouseTitle")} description={t("padMouseDesc")}>
+        <div className="rounded-2xl bg-surface-2 p-4">
+          <Toggle label={t("padMouse")} on={padMouse} onChange={onTogglePadMouse} />
+        </div>
+      </Section>
+      <SteamControlSection />
+    </>
+  );
+}
+
+/** Musique du menu. À doser : elle est discrète par défaut. */
+function MusicSection() {
+  const { t } = useI18n();
+  const [enabled, setEnabled] = useState(menuMusic.enabled);
+  const [volume, setVolume] = useState(Math.round(menuMusic.volume * 100));
+  return (
+    <Section title={t("musicSettings")} description={t("musicSettingsDesc")}>
+      <div className="flex flex-col gap-4 rounded-2xl bg-surface-2 p-4">
+        <Toggle
+          label={t("menuMusic")}
+          on={enabled}
+          onChange={() => {
+            sound.toggle();
+            menuMusic.setEnabled(!enabled);
+            setEnabled(!enabled);
+          }}
+        />
+        <label className="flex items-center gap-4">
+          <span className="w-40 shrink-0 text-sm font-extrabold">{t("menuMusicVolume")}</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={volume}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setVolume(v);
+              menuMusic.setVolume(v / 100);
+            }}
+            className="flex-1 accent-(--accent)"
+          />
+          <span className="w-10 text-right text-sm font-bold tabular-nums text-muted">{volume}</span>
+        </label>
+      </div>
+    </Section>
+  );
+}
+
+const STARTUP_MODES: { id: StartupMode; label: Parameters<TFunction>[0] }[] = [
+  { id: "last", label: "startupLast" },
+  { id: "window", label: "startupWindow" },
+  { id: "maximized", label: "startupMaximized" },
+  { id: "fullscreen", label: "startupFullscreen" },
+  { id: "minimized", label: "startupMinimized" },
+];
+
+/**
+ * Ouverture de 3DSteam : avec Windows ou non, et l'état de la fenêtre à l'ouverture (appliqué par
+ * Rust avant qu'elle ne s'affiche).
+ */
+function StartupSection() {
+  const { t } = useI18n();
+  const [state, setState] = useState<StartupSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void startupSettings().then(setState, (e) => setError(String(e)));
+  }, []);
+
+  const update = (next: Promise<StartupSettings>) => {
+    setError(null);
+    next.then(setState, (e) => setError(String(e)));
+  };
+
+  return (
+    <Section title={t("startupApp")} description={t("startupDesc")}>
+      <div className="flex flex-col gap-4 rounded-2xl bg-surface-2 p-4">
+        <Toggle
+          label={t("startupWithWindows")}
+          on={state?.autostart ?? false}
+          onChange={() => {
+            if (!state) return;
+            sound.toggle();
+            update(setAutostart(!state.autostart));
+          }}
+        />
+        {/* Ne vaut que si Windows lance 3DSteam : sans démarrage automatique, il est en retrait. */}
+        <div className={state?.autostart ? "" : "pointer-events-none opacity-45"} aria-disabled={!state?.autostart}>
+          <Toggle
+            label={t("startupWithWindowsMinimized")}
+            on={state?.autostartMinimized ?? false}
+            onChange={() => {
+              if (!state) return;
+              sound.toggle();
+              update(setStartupMode(state.mode, !state.autostartMinimized));
+            }}
+          />
+        </div>
+        <div>
+          <p className="mb-2 text-sm font-extrabold">{t("startupOpen")}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {STARTUP_MODES.map((mode) => {
+              const current = state?.mode === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  aria-pressed={current}
+                  onMouseEnter={() => sound.hover()}
+                  onClick={() => {
+                    if (!state || current) return;
+                    sound.select();
+                    update(setStartupMode(mode.id, state.autostartMinimized));
+                  }}
+                  className={`rounded-2xl px-2 py-2.5 text-xs font-extrabold transition-colors ${
+                    current ? "bg-surface text-accent-strong ring-2 ring-accent" : "text-muted hover:bg-accent-soft/60"
+                  }`}
+                >
+                  {t(mode.label)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {error && <p className="text-xs font-bold text-[#e5484d]">{error}</p>}
+      </div>
+    </Section>
+  );
+}
+
+/** Lancement d'un jeu : la grande animation, et 3DSteam qui s'efface une fois le jeu ouvert. */
+function LaunchSection() {
+  const { t } = useI18n();
+  const [minimizeOnLaunch, setMinimizeOnLaunch] = useState(() => load("minimizeOnLaunch", false));
+  const [launchSplash, setLaunchSplash] = useState(() => load("launchSplash", true));
+  return (
+    <Section title={t("launchSettings")} description={t("launchSettingsDesc")}>
+      <div className="flex flex-col gap-4 rounded-2xl bg-surface-2 p-4">
+        <Toggle
+          label={t("launchSplashToggle")}
+          on={launchSplash}
+          onChange={() => {
+            sound.toggle();
+            setLaunchSplash((on) => {
+              save("launchSplash", !on);
+              return !on;
+            });
+          }}
+        />
+        <Toggle
+          label={t("minimizeOnLaunch")}
+          on={minimizeOnLaunch}
+          onChange={() => {
+            sound.toggle();
+            setMinimizeOnLaunch((on) => {
+              save("minimizeOnLaunch", !on);
+              return !on;
+            });
+          }}
+        />
+      </div>
+    </Section>
+  );
+}
+
+/**
+ * Pause, reprise et annulation directes : il faut ouvrir le port de débogage de Steam, ce que
+ * l'utilisateur choisit en connaissance de cause (voir `steamctl.rs`). Sans lui, ces actions
+ * ouvrent la liste des téléchargements de Steam.
+ */
+function SteamControlSection() {
+  const { t } = useI18n();
+  const [state, setState] = useState<SteamControl | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => void steamControlState().then((s) => alive && setState(s)).catch(() => {});
+    refresh();
+    // Steam met quelques secondes à rouvrir son port après un redémarrage.
+    const timer = window.setInterval(refresh, 2500);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const toggle = () => {
+    if (!state) return;
+    sound.toggle();
+    setError(null);
+    setSteamControl(!state.enabled).then(setState, (e) => setError(String(e)));
+  };
+  const restart = () => {
+    sound.select();
+    setRestarting(true);
+    setError(null);
+    restartSteam()
+      .catch((e) => setError(String(e)))
+      .finally(() => setRestarting(false));
+  };
+
+  const status = !state
+    ? ""
+    : state.connected
+      ? t("steamControlOn")
+      : state.enabled
+        ? t("steamControlRestart")
+        : t("steamControlOff");
+  return (
+    <Section title={t("steamControl")} description={t("steamControlDesc")}>
+      <div className="flex flex-col gap-3 rounded-2xl bg-surface-2 p-4">
+        <Toggle label={t("steamControlToggle")} on={state?.enabled ?? false} onChange={toggle} />
+        <div className="flex items-center justify-between gap-3">
+          <span className={`text-xs font-bold ${state?.connected ? "text-accent-strong" : "text-muted"}`}>{error ?? status}</span>
+          {/* Retirer le fichier aussi demande un redémarrage pour refermer le port. */}
+          {state && state.enabled !== state.connected && (
+            <ActionButton primary onClick={restart}>
+              {restarting ? t("steamRestarting") : t("steamRestart")}
+            </ActionButton>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 }
 

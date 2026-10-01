@@ -21,9 +21,9 @@
   --panel-blur: 6px;
 }
 
-/* Bleu 3DS : menu HOME, petits points. */
+/* Bleu ciel : petits points. */
 :root,
-[data-theme="blue3ds"] {
+[data-theme="sky"] {
   --bg: #f3f6fa;
   --bg-image: radial-gradient(#d3dfee 1.5px, transparent 1.5px), linear-gradient(170deg, #f8fafc, #e4edf7);
   --bg-size: 22px 22px, 100% 100%;
@@ -40,8 +40,8 @@
   color-scheme: light;
 }
 
-/* Wii U : blanc lumineux, quadrillage cyan très fin. */
-[data-theme="wiiu"] {
+/* Givre : blanc lumineux, quadrillage cyan très fin. */
+[data-theme="frost"] {
   --bg: #f7fbfd;
   --bg-image: linear-gradient(rgb(0 163 217 / 0.09) 1px, transparent 1px),
     linear-gradient(90deg, rgb(0 163 217 / 0.09) 1px, transparent 1px),
@@ -63,8 +63,8 @@
   color-scheme: light;
 }
 
-/* Rouge Switch : fond rosé, rayures diagonales. */
-[data-theme="switch"] {
+/* Rouge cerise : fond rosé, rayures diagonales. */
+[data-theme="cherry"] {
   --bg: #fff3f3;
   --bg-image: repeating-linear-gradient(135deg, rgb(230 0 18 / 0.05) 0 14px, transparent 14px 28px),
     linear-gradient(170deg, #fff7f7, #ffdfe1);
@@ -82,7 +82,7 @@
   color-scheme: light;
 }
 
-/* Switch Néon : anthracite, lueurs rouge et bleue. */
+/* Néon : anthracite, lueurs rouge et bleue. */
 [data-theme="neon"] {
   --bg: #232428;
   --bg-image: radial-gradient(circle at 0% 100%, rgb(255 60 40 / 0.28), transparent 45%),
@@ -103,8 +103,8 @@
   color-scheme: dark;
 }
 
-/* Jaune Pikachu : fond jaune chaud, bandes lumineuses. */
-[data-theme="pikachu"] {
+/* Jaune citron : fond jaune chaud, bandes lumineuses. */
+[data-theme="lemon"] {
   --bg: #ffe98a;
   --bg-image: repeating-linear-gradient(-45deg, rgb(255 255 255 / 0.28) 0 18px, transparent 18px 36px),
     linear-gradient(170deg, #fff4bf, #ffd84f);
@@ -122,8 +122,8 @@
   color-scheme: light;
 }
 
-/* Rose Kirby : rose bonbon et petites étoiles. */
-[data-theme="kirby"] {
+/* Rose bonbon : rose tendre et petites étoiles. */
+[data-theme="candy"] {
   --bg: #ffe0ee;
   --bg-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpath d='M12 4l2.4 5 5.4.6-4 3.7 1.1 5.3L12 16l-4.9 2.6 1.1-5.3-4-3.7 5.4-.6z' fill='%23ffffff' fill-opacity='.55'/%3E%3Ccircle cx='36' cy='34' r='2.2' fill='%23ffffff' fill-opacity='.6'/%3E%3C/svg%3E"),
     linear-gradient(170deg, #fff0f6, #ffc9df);
@@ -143,8 +143,8 @@
   color-scheme: light;
 }
 
-/* Hyrule : vert forêt, triangles dorés. */
-[data-theme="hyrule"] {
+/* Forêt enchantée : vert forêt, triangles dorés. */
+[data-theme="forest"] {
   --bg: #e7efd6;
   --bg-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='48'%3E%3Cpath d='M28 10l6 10H22zM22 20l6 10H16zM34 20l6 10H28z' fill='%23b8962e' fill-opacity='.14'/%3E%3C/svg%3E"),
     linear-gradient(170deg, #f1f6e6, #d3e2b6);
@@ -164,8 +164,8 @@
   color-scheme: light;
 }
 
-/* Famicom : crème, bordeaux et or, lignes rétro. */
-[data-theme="famicom"] {
+/* Rétro crème : crème, bordeaux et or, lignes rétro. */
+[data-theme="retro"] {
   --bg: #f1e7d0;
   --bg-image: repeating-linear-gradient(0deg, rgb(164 40 43 / 0.07) 0 2px, transparent 2px 16px),
     linear-gradient(170deg, #f7efdc, #e6d6b3);
@@ -225,8 +225,8 @@
   color-scheme: dark;
 }
 
-/* GameCube : indigo profond, quadrillage. */
-[data-theme="gamecube"] {
+/* Indigo : indigo profond, quadrillage. */
+[data-theme="indigo"] {
   --bg: #2c2870;
   --bg-image: linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px),
@@ -247,8 +247,8 @@
   color-scheme: dark;
 }
 
-/* Game Boy : quatre verts, damier, formes carrées. */
-[data-theme="gameboy"] {
+/* Écran de poche : quatre verts, damier, formes carrées. */
+[data-theme="pocket"] {
   --bg: #c5d79a;
   --bg-image: conic-gradient(rgb(15 56 15 / 0.06) 25%, transparent 0 50%, rgb(15 56 15 / 0.06) 0 75%, transparent 0),
     linear-gradient(#cadc9f, #b4c887);
@@ -270,8 +270,8 @@
   color-scheme: light;
 }
 
-/* Virtual Boy : rouge sur noir, lignes de balayage. */
-[data-theme="virtualboy"] {
+/* Écarlate : rouge sur noir, lignes de balayage. */
+[data-theme="scarlet"] {
   --bg: #070000;
   --bg-image: repeating-linear-gradient(0deg, rgb(255 20 20 / 0.07) 0 1px, transparent 1px 4px),
     radial-gradient(ellipse at 50% 40%, #1c0202, #000000 75%);

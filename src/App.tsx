@@ -4,6 +4,7 @@ import { TopBar } from "./components/TopBar";
 import { TopScreen } from "./components/TopScreen";
 import { BoardGrid, type ViewItem } from "./components/BoardGrid";
 import { FolderEditor } from "./components/FolderEditor";
+import { mascotReact, suggestName } from "./lib/mascot";
 import { SettingsModal, type Tab as SettingsTab } from "./components/SettingsModal";
 import { ThemeEditor } from "./components/ThemeEditor";
 import { themeName, type ThemeDef } from "./themes/format";
@@ -12,13 +13,48 @@ import { useLibrary } from "./hooks/useLibrary";
 import { useGridMetrics } from "./hooks/useGridMetrics";
 import { useGamepad } from "./hooks/useGamepad";
 import { useDownloads } from "./hooks/useDownloads";
+import { useArrivals } from "./hooks/useArrivals";
+import { appName, builtinGames, loadOpened, markOpened } from "./apps/builtin";
+import { AppWindow, type AppActionHandler } from "./apps/AppWindow";
+import { ActivityLog } from "./apps/ActivityLog";
+import { MusicPlayer } from "./apps/MusicPlayer";
+import { PhotoAlbum } from "./apps/PhotoAlbum";
+import { ProfilePage } from "./apps/Profile";
+import { SvgiiPlaza } from "./apps/plaza/SvgiiPlaza";
+import { player, usePlayer } from "./apps/player";
+import { menuMusic } from "./lib/menuMusic";
+import { recordSnapshot } from "./apps/activityHistory";
+import { useDepartures } from "./hooks/useDepartures";
+import { ActionMenu, type MenuEntry } from "./components/ActionMenu";
+import { GameIcon } from "./components/GameIcon";
+import { FolderArt } from "./components/FolderTile";
+import { LaunchSplash, type SplashEnd } from "./components/LaunchSplash";
+import { DownloadIcon, EditIcon, ExitIcon, FolderOpenIcon, MinimizeIcon, PauseIcon, PlayIcon, PlusIcon, PowerIcon, StopIcon, StoreIcon, TrashIcon } from "./components/Icons";
+import { useRunning } from "./hooks/useRunning";
 import { OnScreenKeyboard } from "./components/OnScreenKeyboard";
 import { isDir, isRange, isTextInput, moveFocus, nudgeRange, setNavVisible, type Action, type Dir } from "./lib/nav";
 import { keyAction, resetBindings } from "./lib/bindings";
 import { useHorizontalWheel } from "./hooks/useHorizontalWheel";
 import { DEFAULT_THEME, useTheme } from "./themes/themes";
 import { defaultLang, useI18n } from "./lib/i18n";
-import { clearCache, installGame, launchGame } from "./lib/api";
+import {
+  clearCache,
+  downloadAction,
+  installGame,
+  launchGame,
+  minimizeApp,
+  steamPersona,
+  stopGame,
+  quitApp,
+  openDownloads,
+  openStore,
+  revealGame,
+  steamControlState,
+  startupSettings,
+  activityStats,
+  uninstallGame,
+  type DownloadAction,
+} from "./lib/api";
 import { isFullscreen, setFullscreen } from "./lib/fullscreen";
 import { DEFAULT_CURSOR, useCursorStyle } from "./lib/cursorStyle";
 import { DEFAULT_ICON_STYLE, useIconStyle } from "./lib/iconStyle";
@@ -48,31 +84,68 @@ import {
   type Slots,
   type ViewId,
 } from "./lib/board";
-import type { Game } from "./types";
+import type { BuiltinId, Game } from "./types";
 
-/** Zoom façon 3DS : nombre de rangées affichées (moins de rangées = icônes plus grandes). */
+/** Zoom façon console portable : nombre de rangées affichées (moins de rangées = icônes plus grandes). */
 const MIN_ROWS = 1;
 const MAX_ROWS = 4;
 const GAP = 18;
 /** Hauteur réservée au nom sous l'icône, quand il y a 1 ou 2 rangées. */
 const LABEL_HEIGHT = 26;
 const LAUNCH_FEEDBACK_MS = 2500;
+/** Un jeu qui ne s'est pas fermé au bout de ce délai se voit proposer l'arrêt forcé. */
+const STOP_FORCE_MS = 6000;
 
 type Editor = { mode: "new"; index: number; draft: Folder } | { mode: "edit"; id: string } | null;
 
 const normalize = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
 export default function App() {
-  const { games, catalog, scannedAt, loaded, scanning, error, rescan } = useLibrary();
+  const { games: installedGames, catalog: knownGames, scannedAt, loaded, scanning, error, rescan } = useLibrary();
+  const { t, tn, lang, locale, setLang } = useI18n();
   const themes = useTheme();
   const cursorStyle = useCursorStyle();
   const iconStyle = useIconStyle();
   /** Un téléchargement qui s'achève relance le scan : le jeu devient jouable de lui-même. */
-  const downloads = useDownloads(rescan);
+  const liveDownloads = useDownloads(rescan);
+  // Un jeu qu'on installe arrive sur le plateau dès le début de son téléchargement.
+  const { arriving, downloads, ready } = useArrivals(
+    installedGames,
+    knownGames,
+    liveDownloads,
+    scannedAt,
+    loaded,
+    () => sound.arrive(),
+    (game) => {
+      sound.ready();
+      mascotReact("happy");
+      showToast(t("gameReady", { name: game.name }));
+    },
+  );
+  // Les applis intégrées (journal, musique, album) se rangent sur le plateau comme des jeux.
+  const [appsOpened, setAppsOpened] = useState(loadOpened);
+  const appGames = useMemo(() => builtinGames(t, appsOpened), [t, appsOpened]);
+  const boardGames = useMemo(() => [...installedGames, ...appGames, ...arriving], [installedGames, appGames, arriving]);
+  /** Tous les jeux Steam connus, installés ou non : les applis y cherchent noms et icônes. */
+  const steamById = useMemo(() => new Map([...knownGames, ...installedGames].map((g) => [g.appid, g])), [knownGames, installedGames]);
+  /** Jeux dont on a demandé la désinstallation (ou l'annulation) : leur départ sera spectaculaire. */
+  const watchedRef = useRef(new Set<number>());
+  const { ghosts, leaving } = useDepartures(boardGames, watchedRef.current);
+  // La mascotte est triste de voir partir un jeu.
+  useEffect(() => {
+    if (leaving.size) mascotReact("sad");
+  }, [leaving]);
+  const games = useMemo(() => (ghosts.length ? [...boardGames, ...ghosts] : boardGames), [boardGames, ghosts]);
+  const catalog = useMemo(() => {
+    const onBoard = new Set([...arriving, ...ghosts].map((g) => g.appid));
+    return onBoard.size ? knownGames.filter((g) => !onBoard.has(g.appid)) : knownGames;
+  }, [knownGames, arriving, ghosts]);
+  const downloadList = useMemo(() => [...downloads.values()], [downloads]);
+  const downloadsRef = useRef(downloads);
+  downloadsRef.current = downloads;
   const [padMouse, setPadMouse] = useState(() => load("padMouse", true));
   useEffect(() => save("padMouse", padMouse), [padMouse]);
   const { theme, setTheme, cycle: cycleTheme } = themes;
-  const { t, tn, lang, locale, setLang } = useI18n();
 
   const [rows, setRows] = useState(() => Math.min(MAX_ROWS, Math.max(MIN_ROWS, load("rows", 2))));
   const [board, setBoard] = useState<Board>(() =>
@@ -83,16 +156,48 @@ export default function App() {
   const [cursor, setCursor] = useState(() => load("cursor", 0));
   const [editor, setEditor] = useState<Editor>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Premier lancement : le profil prend le pseudo Steam, tant qu'on ne l'a pas renommé.
+  useEffect(() => {
+    void steamPersona().then(suggestName).catch(() => {});
+  }, []);
   /** Onglet à rouvrir (après l'éditeur de thème, on revient sur « Thème »). */
   const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
   const [themeEditor, setThemeEditor] = useState<{ def: ThemeDef; isNew: boolean } | null>(null);
   const presets = usePresets();
-  const modalOpen = editor != null || settingsOpen || themeEditor != null;
+  /** Menu d'actions d'une case : au pointeur (clic droit) ou au coin de la tuile (clavier, manette). */
+  const [menu, setMenu] = useState<{ index: number; x: number; y: number; flipX?: number } | null>(null);
+  /** Menu du bouton marche/arrêt (barre du haut) : réduire ou quitter. */
+  const [powerMenu, setPowerMenu] = useState<DOMRect | null>(null);
+  /** Séquence de lancement d'un jeu, en plein écran, et la case d'où part son icône. */
+  const [splash, setSplash] = useState<{ game: Game; from: DOMRect | null } | null>(null);
+  /** Fin de la séquence de lancement : le jeu s'est ouvert, s'est refermé, ou se fait attendre. */
+  const endSplash = useCallback(
+    (why: SplashEnd) => {
+      const name = splashRef.current?.game.name ?? "";
+      setSplash(null);
+      if (why === "opened" && load("minimizeOnLaunch", false)) void minimizeApp().catch(() => {});
+      if (why === "closed") showToast(t("launchClosed", { name }));
+      if (why === "timeout") showToast(t("launchTimeout", { name }));
+    },
+    // `showToast`, déclaré plus bas, ne change jamais : le citer ici le lirait avant sa création.
+    [t],
+  );
+  const splashRef = useRef(splash);
+  splashRef.current = splash;
+  /** Appli intégrée ouverte en plein écran. */
+  const [openAppId, setOpenAppId] = useState<BuiltinId | null>(null);
+  const modalOpen = editor != null || settingsOpen || themeEditor != null || menu != null || powerMenu != null || openAppId != null;
   const [query, setQuery] = useState("");
   /** Vue « Tout » : les jeux installés et ceux que le client connaît, à plat. */
   const [showAll, setShowAll] = useState(false);
   const [soundOn, setSoundOn] = useState(sound.enabled);
   const [launchingId, setLaunchingId] = useState<number | null>(null);
+  /** Jeux qui tournent : on ne les relance pas, on peut les arrêter. */
+  const { running, refresh: refreshRunning } = useRunning();
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  /** Arrêts demandés : depuis quand, et si l'arrêt forcé est désormais proposé. */
+  const [stopping, setStopping] = useState<Map<number, { name: string; force: boolean }>>(() => new Map());
   const [toast, setToast] = useState<string | null>(null);
   const [backHover, setBackHover] = useState(false);
   /** Case d'origine de l'icône « prise » au clavier / à la manette, qui suit le curseur. */
@@ -184,7 +289,29 @@ export default function App() {
   const cursorRef = useRef(cursorIndex);
   cursorRef.current = cursorIndex;
 
-  const gameCount = browsing ? items.length : view == null ? games.length : gamesOf(openFolder?.slots ?? []).length;
+  // Le curseur suit le jeu (ou le dossier) qu'il désigne, même quand celui-ci change de case :
+  // tri, installation qui le pose sur le plateau, recherche qui filtre. Seul un déplacement voulu
+  // du curseur change ce qu'il suit.
+  const followed = useRef<{ key: string | null; index: number }>({ key: slotKey(current), index: cursorIndex });
+  useEffect(() => {
+    const was = followed.current;
+    if (cursorIndex !== was.index) {
+      followed.current = { key: slotKey(items[cursorIndex] ?? null), index: cursorIndex };
+      return;
+    }
+    if (was.key == null || slotKey(items[cursorIndex] ?? null) === was.key) return;
+    const moved = items.findIndex((item) => slotKey(item) === was.key);
+    if (moved >= 0) {
+      followed.current = { key: was.key, index: moved };
+      setCursor(moved);
+    }
+  }, [items, cursorIndex]);
+
+  // Le compteur parle de jeux : les applis n'y entrent pas.
+  const realGames = (list: (Game | null | undefined)[]) => list.filter((g) => g && !g.builtin).length;
+  const gameCount = browsing
+    ? realGames(items.map((it) => (it?.kind === "game" ? it.game : null)))
+    : realGames(view == null ? games : gamesOf(openFolder?.slots ?? []));
 
   // ─── Actions ─────────────────────────────────────────────────────────────────────────
 
@@ -206,30 +333,130 @@ export default function App() {
     setCursor(index);
   }, []);
 
+  /** L'action clavier/manette que l'appli ouverte intercepte (← → dans la visionneuse…). */
+  const appHandler = useRef<AppActionHandler | null>(null);
+  const registerApp = useCallback((handler: AppActionHandler | null) => {
+    appHandler.current = handler;
+  }, []);
+  const openApp = useCallback((id: BuiltinId) => {
+    sound.zoom(1);
+    setOpenAppId(id);
+    // Ouvrir une appli compte comme y jouer : le tri « Récents » la remonte.
+    setAppsOpened(markOpened(id));
+  }, []);
+  const closeApp = useCallback(() => {
+    sound.zoom(-1);
+    appHandler.current = null;
+    setOpenAppId(null);
+  }, []);
+
   const launch = useCallback(
     async (game: Game) => {
+      if (game.builtin) return openApp(game.builtin);
       if (launchingId != null) return;
       // Filet de sécurité : un jeu du catalogue passe par `install`, jamais par ici.
       if (!game.installed) return;
+      // Déjà lancé : le relancer ouvrirait une seconde instance, ou rien du tout.
+      if (runningRef.current.has(game.appid)) {
+        sound.error();
+        return showToast(t("alreadyRunning", { name: game.name }));
+      }
       setLaunchingId(game.appid);
-      sound.launch();
+      // La grande séquence de lancement (⚙ → Général → Démarrage pour s'en passer) part de la
+      // case du jeu, si elle est à l'écran.
+      const withSplash = load("launchSplash", true);
+      if (withSplash) {
+        const rect = document.querySelector(`[data-appid="${game.appid}"]`)?.getBoundingClientRect() ?? null;
+        const visible = rect && rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+        setSplash({ game, from: visible ? rect : null });
+        sound.launchBig();
+      } else {
+        sound.launch();
+      }
+      mascotReact("excited");
+      // La musique du lecteur s'efface devant le jeu.
+      player.pause();
       try {
         await launchGame(game.appid);
-        showToast(t("starting", { name: game.name }));
+        // Avec la séquence de lancement, 3DSteam s'efface quand le jeu est vraiment ouvert
+        // (voir `endSplash`) ; sans elle, juste après la demande.
+        if (!withSplash) {
+          showToast(t("starting", { name: game.name }));
+          if (load("minimizeOnLaunch", false)) window.setTimeout(() => void minimizeApp().catch(() => {}), 600);
+        }
       } catch (e) {
+        setSplash(null);
         sound.error();
         showToast(String(e));
       } finally {
         window.setTimeout(() => setLaunchingId(null), LAUNCH_FEEDBACK_MS);
       }
     },
-    [launchingId, showToast, t],
+    [launchingId, openApp, showToast, t],
   );
+
+  /** Arrêter : d'abord poliment (ses fenêtres reçoivent l'ordre de se fermer), puis de force s'il ne répond pas. */
+  const stopRunning = useCallback(
+    async (game: Game, force: boolean) => {
+      try {
+        const outcome = await stopGame(game.appid, force);
+        if (outcome === "closing") {
+          sound.select();
+          showToast(t("stopClosing", { name: game.name }));
+          setStopping((m) => new Map(m).set(game.appid, { name: game.name, force: false }));
+        } else if (outcome === "noWindow") {
+          showToast(t("stopNoWindow", { name: game.name }));
+          setStopping((m) => new Map(m).set(game.appid, { name: game.name, force: true }));
+        } else if (outcome === "killed") {
+          sound.crack();
+          showToast(t("stopKilled", { name: game.name }));
+        } else {
+          showToast(t("stopNotRunning", { name: game.name }));
+        }
+      } catch (e) {
+        sound.error();
+        showToast(String(e));
+      }
+      refreshRunning();
+      window.setTimeout(refreshRunning, 1200);
+    },
+    [refreshRunning, showToast, t],
+  );
+
+  // Il ne se ferme pas : passé le délai, l'arrêt forcé est proposé.
+  useEffect(() => {
+    const waiting = [...stopping].filter(([, s]) => !s.force);
+    if (!waiting.length) return;
+    const id = window.setTimeout(() => {
+      const slow = waiting.filter(([appid]) => runningRef.current.has(appid));
+      if (!slow.length) return;
+      slow.forEach(([, s]) => showToast(t("stopSlow", { name: s.name })));
+      setStopping((m) => {
+        const next = new Map(m);
+        for (const [appid, s] of slow) if (next.has(appid)) next.set(appid, { ...s, force: true });
+        return next;
+      });
+    }, STOP_FORCE_MS);
+    return () => window.clearTimeout(id);
+  }, [stopping, showToast, t]);
+
+  // Le jeu s'est fermé : la demande d'arrêt est oubliée.
+  useEffect(() => {
+    const done = [...stopping].filter(([appid]) => !running.has(appid));
+    if (!done.length) return;
+    done.forEach(([, s]) => showToast(t("stopDone", { name: s.name })));
+    setStopping((m) => {
+      const next = new Map(m);
+      for (const [appid] of done) next.delete(appid);
+      return next;
+    });
+  }, [running, stopping, showToast, t]);
 
   /**
    * Installation : Steam impose sa boîte de dialogue, qui ne répond pas au clavier et n'expose
    * rien à l'accessibilité. On ne la valide donc pas à la place de l'utilisateur — ce serait
-   * accepter un contrat de licence pour lui —, on lui donne de quoi le faire à la manette.
+   * accepter un contrat de licence pour lui —, on lui donne de quoi le faire à la manette ou au
+   * clavier.
    */
   const install = useCallback(
     async (game: Game) => {
@@ -249,6 +476,84 @@ export default function App() {
     [padMouse, rescan, showToast, t],
   );
 
+  /**
+   * Désinstallation : même boîte imposée par Steam, même pilotage. C'est l'utilisateur qui
+   * confirme, dans Steam ; le jeu quitte ensuite la grille et laisse sa case vide.
+   */
+  const uninstall = useCallback(
+    async (game: Game) => {
+      showToast(padMouse ? t("uninstallPad", { name: game.name }) : t("uninstallConfirm", { name: game.name }));
+      // Si Steam confirme, la tuile volera en éclats au scan qui constate son départ.
+      watchedRef.current.add(game.appid);
+      try {
+        await uninstallGame(game.appid, padMouse);
+        // Steam retire ses fichiers en quelques secondes après la confirmation.
+        void rescan();
+        window.setTimeout(() => void rescan(), 5000);
+      } catch (e) {
+        sound.error();
+        showToast(String(e));
+      }
+    },
+    [padMouse, rescan, showToast, t],
+  );
+
+  // Journal d'activité : à chaque scan, le cumul du jour est noté, même si le journal reste fermé.
+  useEffect(() => {
+    if (scannedAt) void activityStats().then(recordSnapshot).catch(() => {});
+  }, [scannedAt]);
+
+  /** Le port de débogage de Steam répond : pause, reprise et annulation passent directement. */
+  const [directControl, setDirectControl] = useState(false);
+  useEffect(() => {
+    if (settingsOpen) return;
+    void steamControlState()
+      .then((s) => setDirectControl(s.connected))
+      .catch(() => setDirectControl(false));
+  }, [settingsOpen]);
+
+  /**
+   * Pause, reprise, annulation. Annuler une installation passe par la boîte de désinstallation
+   * de Steam (ce qui a été reçu est effacé) ; le reste passe directement si le port de débogage
+   * est ouvert, sinon par la liste des téléchargements de Steam, qu'on pilote soi-même.
+   */
+  const controlDownload = useCallback(
+    async (game: Game, action: DownloadAction) => {
+      sound.select();
+      const dialog = action === "cancel" && !game.installed;
+      if (dialog) {
+        watchedRef.current.add(game.appid);
+        showToast(t("cancelConfirm", { name: game.name }));
+      }
+      try {
+        const how = await downloadAction(game.appid, action, game.installed, padMouse);
+        if (how === "steam") showToast(padMouse ? t("downloadInSteamPad") : t("downloadInSteam"));
+        else if (how === "direct") {
+          const done = action === "pause" ? "pausedToast" : action === "resume" ? "resumedToast" : "cancelledToast";
+          showToast(t(done, { name: game.name }));
+        }
+        if (action === "cancel") {
+          void rescan();
+          window.setTimeout(() => void rescan(), 5000);
+        }
+      } catch (e) {
+        sound.error();
+        showToast(String(e));
+      }
+    },
+    [padMouse, rescan, showToast, t],
+  );
+
+  /** Appel à Steam sans retour attendu (magasin, dossier, téléchargements) : seule l'erreur compte. */
+  const tryOpen = useCallback(
+    (open: () => Promise<void>) =>
+      void open().catch((e) => {
+        sound.error();
+        showToast(String(e));
+      }),
+    [showToast],
+  );
+
   const enterFolder = useCallback((id: string) => {
     sound.zoom(1);
     setQuery("");
@@ -265,14 +570,43 @@ export default function App() {
   }, [view, board.slots]);
 
   /** Entrée / Ⓐ / double-clic : lance le jeu ou ouvre le dossier sous le curseur. */
+  /**
+   * Ouvre le menu d'une case : au pointeur pour un clic droit, sinon contre la tuile (à sa droite,
+   * ou à sa gauche si la place manque).
+   */
+  const openMenu = useCallback(
+    (index: number, at?: { x: number; y: number }) => {
+      const item = itemsRef.current[index];
+      // Une case vide n'a qu'une action, possible seulement sur le plateau principal.
+      if (item == null && (view != null || browsing)) return;
+      setCursor(index);
+      if (at) return setMenu({ index, ...at });
+      const rect = gridArea?.querySelector(`[data-slot="${index}"] [data-square]`)?.getBoundingClientRect();
+      if (!rect) return;
+      setNavVisible(true);
+      setMenu({ index, x: rect.right + 10, y: rect.top, flipX: rect.left - 10 });
+    },
+    [view, browsing, gridArea],
+  );
+  const onGridMenu = useCallback((index: number, x: number, y: number) => openMenu(index, { x, y }), [openMenu]);
+
+  /**
+   * Valider une case. Un jeu installé démarre : c'est ce qu'on attend d'une icône. Tout le reste
+   * ouvre le menu plutôt que d'agir — installer lance un téléchargement de plusieurs gigaoctets,
+   * ce n'est pas à faire sur une touche pressée par mégarde. C'est aussi par là qu'on atteint
+   * Pause et Annuler à la manette, sans avoir à remonter dans l'écran du haut.
+   */
   const activate = useCallback(
     (index?: number) => {
-      const item = itemsRef.current[index ?? cursorRef.current];
+      const at = index ?? cursorRef.current;
+      const item = itemsRef.current[at];
       if (index != null) setCursor(index);
-      if (item?.kind === "game") void (item.game.installed ? launch(item.game) : install(item.game));
-      else if (item?.kind === "folder") enterFolder(item.folder.id);
+      if (item?.kind === "folder") return enterFolder(item.folder.id);
+      if (item?.kind !== "game") return;
+      if (item.game.installed && !downloadsRef.current.has(item.game.appid)) return void launch(item.game);
+      openMenu(at);
     },
-    [launch, install, enterFolder],
+    [launch, enterFolder, openMenu],
   );
   const activateRef = useRef(activate);
   activateRef.current = activate;
@@ -369,6 +703,76 @@ export default function App() {
     [board.folders, showToast, t],
   );
 
+  /** Actions proposées pour la case du menu. */
+  const menuEntries = useCallback(
+    (index: number): MenuEntry[] => {
+      const item = items[index];
+      if (item == null) {
+        return [{ id: "folder", label: t("newFolderButton"), icon: <PlusIcon width={18} height={18} />, onSelect: startNewFolder }];
+      }
+      if (item.kind === "folder") {
+        const { folder } = item;
+        return [
+          { id: "open", label: t("open"), icon: <FolderOpenIcon width={18} height={18} />, onSelect: () => enterFolder(folder.id) },
+          { id: "edit", label: t("edit"), icon: <EditIcon width={18} height={18} />, onSelect: () => setEditor({ mode: "edit", id: folder.id }) },
+          { id: "delete", label: t("delete"), icon: <TrashIcon width={18} height={18} />, onSelect: () => removeFolder(folder.id), danger: true },
+        ];
+      }
+      const { game } = item;
+      // Une appli intégrée n'a rien à voir avec Steam : l'ouvrir, et c'est tout.
+      if (game.builtin) {
+        const id = game.builtin;
+        const open: MenuEntry = { id: "open", label: t("open"), icon: <PlayIcon width={18} height={18} />, onSelect: () => openApp(id) };
+        return view != null
+          ? [open, { id: "out", label: t("moveOut"), icon: <ExitIcon width={18} height={18} />, onSelect: () => moveOut(index) }]
+          : [open];
+      }
+      const download = downloads.get(game.appid);
+      const entries: MenuEntry[] = [];
+      if (game.installed && running.has(game.appid)) {
+        entries.push({ id: "stop", label: t("stopGame"), icon: <StopIcon width={18} height={18} />, onSelect: () => void stopRunning(game, false) });
+        if (stopping.get(game.appid)?.force) {
+          entries.push({ id: "kill", label: t("forceStop"), icon: <StopIcon width={18} height={18} />, onSelect: () => void stopRunning(game, true), danger: true });
+        }
+      } else if (game.installed) {
+        entries.push({ id: "launch", label: t("launch"), icon: <PlayIcon width={18} height={18} />, onSelect: () => void launch(game) });
+      } else if (!download) {
+        entries.push({ id: "install", label: t("install"), icon: <DownloadIcon width={18} height={18} />, onSelect: () => void install(game) });
+      }
+      if (download && download.phase !== "verifying" && download.phase !== "installing") {
+        const running = download.phase === "downloading" || download.phase === "preparing";
+        entries.push(
+          running
+            ? { id: "pause", label: t("pause"), icon: <PauseIcon width={18} height={18} />, onSelect: () => void controlDownload(game, "pause") }
+            : { id: "resume", label: t("resume"), icon: <PlayIcon width={18} height={18} />, onSelect: () => void controlDownload(game, "resume") },
+        );
+      }
+      // L'ordre de la file, lui, se règle dans Steam.
+      if (download) {
+        entries.push({ id: "downloads", label: t("menuDownloads"), icon: <DownloadIcon width={18} height={18} />, onSelect: () => tryOpen(openDownloads) });
+      }
+      if (game.installed && game.installDir) {
+        entries.push({ id: "files", label: t("menuFiles"), icon: <FolderOpenIcon width={18} height={18} />, onSelect: () => tryOpen(() => revealGame(game)) });
+      }
+      // Un jeu hors Steam n'a pas de page dans le magasin, et Steam ne sait pas le désinstaller.
+      if (!game.shortcut) {
+        entries.push({ id: "store", label: t("menuStore"), icon: <StoreIcon width={18} height={18} />, onSelect: () => tryOpen(() => openStore(game.appid)) });
+      }
+      if (view != null) {
+        entries.push({ id: "out", label: t("moveOut"), icon: <ExitIcon width={18} height={18} />, onSelect: () => moveOut(index) });
+      }
+      if (download && download.phase !== "verifying" && download.phase !== "installing") {
+        const label = game.installed ? t("cancelUpdate") : t("cancelDownload");
+        entries.push({ id: "cancel", label, icon: <TrashIcon width={18} height={18} />, onSelect: () => void controlDownload(game, "cancel"), danger: true });
+      }
+      if (game.installed && !game.shortcut) {
+        entries.push({ id: "uninstall", label: t("menuUninstall"), icon: <TrashIcon width={18} height={18} />, onSelect: () => void uninstall(game), danger: true });
+      }
+      return entries;
+    },
+    [items, downloads, view, t, startNewFolder, enterFolder, removeFolder, launch, install, uninstall, controlDownload, tryOpen, moveOut, openApp, running, stopping, stopRunning],
+  );
+
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const changeZoom = useCallback((direction: 1 | -1) => {
@@ -379,7 +783,7 @@ export default function App() {
     setRows(next);
   }, []);
 
-  /** Curseur libre, case par case, vides comprises (comme sur 3DS). */
+  /** Curseur libre, case par case, vides comprises (comme sur une console portable). */
   const move = useCallback(
     (dx: number, dy: number) => {
       const { col, row } = toColRow(cursorRef.current, rows);
@@ -430,15 +834,19 @@ export default function App() {
     }
   }, [showToast, t]);
 
-  // Le plein écran est mémorisé : on le rétablit au démarrage.
+  // À l'ouverture, la fenêtre est déjà dans l'état choisi (⚙ → Général → Démarrage, appliqué
+  // par Rust avant affichage). Seul « comme la dernière fois » reste à faire ici : rétablir le
+  // plein écran mémorisé.
   useEffect(() => {
-    if (load("fullscreen", false)) {
-      setFullscreen(true)
-        .then(() => setFullscreenState(true))
-        .catch(() => {});
-    }
-    // Suit aussi les sorties de plein écran faites par le système (Échap du navigateur, etc.).
     const sync = () => void isFullscreen().then(setFullscreenState).catch(() => {});
+    sync();
+    void startupSettings()
+      .then((s) => {
+        if (s.mode !== "last" || !load("fullscreen", false)) return;
+        return setFullscreen(true).then(() => setFullscreenState(true));
+      })
+      .catch(() => {});
+    // Suit aussi les sorties de plein écran faites par le système (Échap du navigateur, etc.).
     window.addEventListener("resize", sync);
     return () => window.removeEventListener("resize", sync);
   }, []);
@@ -542,7 +950,12 @@ export default function App() {
   // ─── Clavier & manette ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const unlock = () => sound.unlock();
+    // La musique du menu démarre tout de suite dans l'appli ; dans un navigateur, au premier geste.
+    menuMusic.start();
+    const unlock = () => {
+      sound.unlock();
+      menuMusic.start();
+    };
     window.addEventListener("pointerdown", unlock, { once: true });
     window.addEventListener("keydown", unlock, { once: true });
     return () => {
@@ -550,6 +963,27 @@ export default function App() {
       window.removeEventListener("keydown", unlock);
     };
   }, []);
+
+  // 3DSteam au premier plan ? Sinon (un jeu tourne, on est passé ailleurs), la musique du menu
+  // et les bandes-annonces se taisent.
+  const [focused, setFocused] = useState(() => document.hasFocus());
+  useEffect(() => {
+    const update = () => setFocused(document.hasFocus() && document.visibilityState === "visible");
+    window.addEventListener("focus", update);
+    window.addEventListener("blur", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      window.removeEventListener("focus", update);
+      window.removeEventListener("blur", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
+  // La musique du menu laisse la parole à tout ce qui compte plus qu'elle.
+  const music = usePlayer();
+  useEffect(() => menuMusic.duck("away", !focused), [focused]);
+  useEffect(() => menuMusic.duck("player", music.playing), [music.playing]);
+  useEffect(() => menuMusic.duck("launch", splash != null), [splash]);
+  useEffect(() => menuMusic.duck("muted", !soundOn), [soundOn]);
 
   // Deux modes sans souris : le curseur de la grille, ou le focus des boutons (barres, écran du
   // haut, fenêtres) qu'on parcourt aux flèches comme sur une interface de télé.
@@ -561,6 +995,39 @@ export default function App() {
     (document.activeElement as HTMLElement | null)?.blur?.();
     setNavMode("grid");
   }, []);
+
+  /**
+   * Pastille des téléchargements : amène le curseur sur le jeu, où qu'il soit — dans la vue
+   * affichée, sur le plateau, ou dans un dossier qu'on ouvre alors.
+   */
+  const goToGame = useCallback(
+    (appid: number): boolean => {
+      const isIt = (c: { kind: string; appid?: number } | null) => c?.kind === "game" && c.appid === appid;
+      const here = itemsRef.current.findIndex((item) => item?.kind === "game" && item.game.appid === appid);
+      const onBoard = board.slots.findIndex(isIt);
+      const folder = Object.values(board.folders).find((f) => f.slots.some(isIt));
+      const target = onBoard >= 0 ? { view: null, index: onBoard } : folder ? { view: folder.id, index: folder.slots.findIndex(isIt) } : null;
+      // Introuvable sur le plateau (un jeu désinstallé, vu depuis le journal) : on ne bouge pas.
+      if (here < 0 && !target) {
+        sound.error();
+        return false;
+      }
+      sound.select();
+      leaveUi();
+      if (here >= 0) {
+        setCursor(here);
+        return true;
+      }
+      setQuery("");
+      // Quitter la vue « Tout » recharge le curseur du plateau : on lui donne la bonne case avant.
+      if (target!.view == null) save("cursor", target!.index);
+      setShowAll(false);
+      setView(target!.view);
+      setCursor(target!.index);
+      return true;
+    },
+    [board, leaveUi],
+  );
 
   // Une fenêtre qui s'ouvre prend la navigation ; à sa fermeture, on revient à la grille.
   useEffect(() => {
@@ -585,6 +1052,11 @@ export default function App() {
   /** Aiguillage commun clavier / manette. */
   const handleAction = useCallback(
     (a: Action, fromGamepad: boolean) => {
+      // Pendant la séquence de lancement, Ⓐ ou Ⓑ la passent ; le reste attend qu'elle finisse.
+      if (splash) {
+        if (a === "confirm" || a === "back") setSplash(null);
+        return;
+      }
       if (oskInput) {
         if (!oskInput.isConnected) return setOskInput(null);
         return oskHandler.current?.(a);
@@ -613,12 +1085,20 @@ export default function App() {
       }
       if (a === "zoomIn" || a === "zoomOut") return modalOpen ? undefined : changeZoom(a === "zoomIn" ? 1 : -1);
 
+      // Le bouton qui a ouvert le menu le referme.
+      if (menu && (a === "menu" || a === "create")) return setMenu(null);
+      // L'appli ouverte a la priorité : la visionneuse de l'album prend ← →, par exemple.
+      if (openAppId && !menu && appHandler.current?.(a)) return;
+
       if (modalOpen || navMode === "ui") {
         setNavVisible(true);
         const active = document.activeElement;
         if (isDir(a)) {
+          // Curseur (teinte, volume, position) : ← → le règlent, au clavier comme à la manette.
+          // Le clavier ne peut pas compter sur le réglage natif du navigateur : les flèches sont
+          // interceptées plus haut pour la navigation, le curseur ne les recevait jamais.
           if (isRange(active) && (a === "left" || a === "right")) {
-            if (fromGamepad) nudgeRange(active, a === "right" ? 1 : -1);
+            nudgeRange(active, a === "right" ? 1 : -1);
             return;
           }
           if (moveFocus(a)) return sound.move();
@@ -635,7 +1115,10 @@ export default function App() {
           return (active as HTMLElement | null)?.click?.();
         }
         if (a === "back") {
-          if (settingsOpen) setSettingsOpen(false);
+          if (menu) setMenu(null);
+          else if (powerMenu) setPowerMenu(null);
+          else if (openAppId) closeApp();
+          else if (settingsOpen) setSettingsOpen(false);
           else if (themeEditor) {
             themes.setPreview(null);
             setThemeEditor(null);
@@ -662,9 +1145,14 @@ export default function App() {
       if (a === "confirm") return held != null ? dropHeld() : activate();
       if (a === "back") return held != null ? cancelHeld() : back();
       if (a === "grab") return grab();
-      if (a === "create") return startNewFolder();
+      // Ⓨ : nouveau dossier sur une case vide, menu d'actions sur un jeu ou un dossier.
+      if (a === "create" || a === "menu") {
+        if (held != null) return;
+        const occupied = itemsRef.current[cursorRef.current] != null;
+        return a === "create" && !occupied ? startNewFolder() : openMenu(cursorRef.current);
+      }
     },
-    [oskInput, modalOpen, navMode, settingsOpen, editor, themeEditor, themes, held, rows, gridArea, toggleFullscreen, changeZoom, cycleTheme, toggleSound, leaveUi, move, dropHeld, activate, cancelHeld, back, grab, startNewFolder],
+    [splash, oskInput, modalOpen, navMode, menu, powerMenu, openAppId, closeApp, settingsOpen, editor, themeEditor, themes, held, rows, gridArea, toggleFullscreen, changeZoom, cycleTheme, toggleSound, leaveUi, move, dropHeld, activate, cancelHeld, back, grab, startNewFolder, openMenu],
   );
 
   useEffect(() => {
@@ -745,15 +1233,23 @@ export default function App() {
         onRescan={handleRescan}
         fullscreen={fullscreen}
         onToggleFullscreen={() => void toggleFullscreen()}
+        downloads={downloadList}
+        onShowDownload={goToGame}
+        onOpenMusic={() => openApp("music")}
+        onPower={(rect) => {
+          sound.select();
+          setPowerMenu(rect);
+        }}
         onOpenSettings={() => {
           sound.select();
           setSettingsOpen(true);
         }}
+        onOpenProfile={() => openApp("profile")}
       />
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 p-5 pt-4">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 pt-3 md:p-5 md:pt-4 [@media(max-height:640px)]:gap-2 [@media(max-height:640px)]:p-3 [@media(max-height:640px)]:pt-2">
         {/* Écran du haut */}
-        <div className="shrink-0" style={{ height: "clamp(180px, 34vh, 380px)" }}>
+        <div className="shrink-0" style={{ height: "clamp(150px, 33vh, 380px)" }}>
           <TopScreen
             item={games.length ? shown : null}
             itemKey={itemKey}
@@ -761,6 +1257,13 @@ export default function App() {
             launching={launchingId != null}
             canCreateFolder={view == null && !browsing && games.length > 0}
             download={current?.kind === "game" ? downloads.get(current.game.appid) : undefined}
+            ready={current?.kind === "game" && ready.has(current.game.appid)}
+            leaving={current?.kind === "game" && leaving.has(current.game.appid)}
+            directControl={directControl}
+            onDownload={(action) => current?.kind === "game" && void controlDownload(current.game, action)}
+            running={current?.kind === "game" && running.has(current.game.appid)}
+            stopping={current?.kind === "game" && stopping.has(current.game.appid) ? (stopping.get(current.game.appid)!.force ? "force" : "closing") : null}
+            onStop={(force) => current?.kind === "game" && void stopRunning(current.game, force)}
             onLaunch={() =>
               current?.kind === "game" &&
               void (current.game.installed ? launch(current.game) : install(current.game))
@@ -774,14 +1277,14 @@ export default function App() {
         </div>
 
         {/* Charnière entre les deux écrans */}
-        <div className="mx-auto h-1.5 w-24 shrink-0 rounded-full bg-muted/25" aria-hidden />
+        <div className="mx-auto h-1.5 w-24 shrink-0 rounded-full bg-muted/25 [@media(max-height:640px)]:hidden" aria-hidden />
 
         {/* Écran du bas */}
         <section
           className="panel flex min-h-0 flex-1 flex-col shadow-soft transition-colors"
           style={openFolder ? { backgroundColor: `color-mix(in srgb, ${openFolder.color} 14%, var(--surface))` } : undefined}
         >
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-1 pt-3">
+          <div className="flex items-center gap-x-3 gap-y-2 px-4 pb-1 pt-3 md:px-5 [@media(max-height:640px)]:pt-2">
             {openFolder && (
               // « Retour » sert aussi de zone de dépôt pour sortir un jeu du dossier (voir BoardGrid).
               <motion.button
@@ -808,13 +1311,14 @@ export default function App() {
                 {t("holdingHint")}
               </motion.p>
             )}
-            <p className={`flex items-center gap-2 text-sm font-extrabold ${held != null ? "hidden" : ""}`}>
+            <p className={`flex min-w-0 shrink-0 items-center gap-2 whitespace-nowrap text-sm font-extrabold ${held != null ? "hidden" : ""}`}>
               {openFolder && <span className="h-3 w-3 rounded-full" style={{ background: openFolder.color }} />}
               {openFolder && <span>{openFolder.name} ·</span>}
               {tn("games", gameCount)}
-              <span className="font-bold text-muted">{status}</span>
+              {/* Écran étroit : l'heure du dernier scan cède la place aux boutons. */}
+              <span className="hidden font-bold text-muted lg:inline">{status}</span>
             </p>
-            <div className="ml-auto flex items-center gap-1 text-sm font-bold text-muted">
+            <div className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-bold text-muted">
               {view == null && !browsing && (
                 <button
                   type="button"
@@ -822,9 +1326,11 @@ export default function App() {
                   onClick={startNewFolder}
                   disabled={current != null}
                   title={current != null ? t("addFolderDisabled") : t("addFolderTitle")}
-                  className="mr-2 rounded-full px-3 py-1 transition-colors hover:bg-accent-soft hover:text-accent-strong disabled:opacity-40 disabled:hover:bg-transparent"
+                  aria-label={t("addFolderTitle")}
+                  className="mr-1 rounded-full px-3 py-1 transition-colors hover:bg-accent-soft hover:text-accent-strong disabled:opacity-40 disabled:hover:bg-transparent md:mr-2"
                 >
-                  {t("addFolder")}
+                  <span className="md:hidden">+</span>
+                  <span className="hidden md:inline">{t("addFolder")}</span>
                 </button>
               )}
               {view == null && (
@@ -852,7 +1358,7 @@ export default function App() {
               {/* Le tri réécrit le plateau : il n'a pas de sens dans une vue à plat. */}
               {!browsing && (
                 <>
-                  <span className="mr-1">{t("sort")}</span>
+                  <span className="mr-1 hidden md:inline">{t("sort")}</span>
                   {(
                     [
                       ["recent", t("sortRecent")],
@@ -879,9 +1385,11 @@ export default function App() {
             // La molette fait défiler le quadrillage vers la droite, comme Maj + molette (useHorizontalWheel).
             ref={gridAreaRef}
             data-nav-skip
-            className="soft-scroll min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4"
+            className="soft-scroll min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-4 py-4 md:px-6 [@media(max-height:640px)]:py-2"
           >
-            {games.length > 0 && items.length > 0 ? (
+            {/* Les applis sont toujours là : sans jeu Steam, la grille ne s'affiche qu'une fois le
+                scan fini sans erreur, sinon l'écran d'attente ou d'erreur reste visible. */}
+            {items.length > 0 && (installedGames.length > 0 || (loaded && !error) || browsing) ? (
               <BoardGrid
                 items={items}
                 rows={rows}
@@ -891,6 +1399,10 @@ export default function App() {
                 cursor={cursorIndex}
                 editable={!browsing}
                 downloads={downloads}
+                ready={ready}
+                leaving={leaving}
+                running={running}
+                onMenu={onGridMenu}
                 onCursor={pointAt}
                 onActivate={activateTile}
                 onMove={moveItem}
@@ -984,6 +1496,65 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>{splash && <LaunchSplash key={splash.game.appid} game={splash.game} from={splash.from} onEnd={endSplash} />}</AnimatePresence>
+
+      <AnimatePresence>
+        {openAppId && (
+          <AppWindow key={openAppId} id={openAppId} title={appName(openAppId, t)} onClose={closeApp} onRegister={registerApp}>
+            {openAppId === "activity" && (
+              <ActivityLog
+                games={steamById}
+                onShowGame={(appid) => {
+                  // On ne referme le journal que si le jeu est bien sur le plateau.
+                  if (goToGame(appid)) setOpenAppId(null);
+                }}
+              />
+            )}
+            {openAppId === "music" && <MusicPlayer />}
+            {openAppId === "album" && <PhotoAlbum games={steamById} />}
+            {openAppId === "profile" && <ProfilePage games={steamById} installed={installedGames} notify={showToast} />}
+            {openAppId === "plaza" && <SvgiiPlaza games={steamById} installed={installedGames} notify={showToast} />}
+          </AppWindow>
+        )}
+      </AnimatePresence>
+
+      {powerMenu && (
+        <ActionMenu
+          // Sous le bouton, aligné sur son bord droit (il est tout à droite de l'écran).
+          x={powerMenu.right}
+          y={powerMenu.bottom + 8}
+          flipX={powerMenu.right}
+          title="3DSteam"
+          entries={[
+            { id: "minimize", label: t("powerMinimize"), icon: <MinimizeIcon width={18} height={18} />, onSelect: () => tryOpen(minimizeApp) },
+            {
+              id: "quit",
+              label: t("powerQuit"),
+              icon: <PowerIcon width={18} height={18} />,
+              danger: true,
+              // Le temps d'un petit son d'au revoir, puis on quitte. Steam, lui, reste ouvert.
+              onSelect: () => {
+                sound.zoom(-1);
+                window.setTimeout(() => tryOpen(quitApp), 220);
+              },
+            },
+          ]}
+          onClose={() => setPowerMenu(null)}
+        />
+      )}
+
+      {menu && items[menu.index] !== undefined && (
+        <ActionMenu
+          x={menu.x}
+          y={menu.y}
+          flipX={menu.flipX}
+          title={menuTitle(items[menu.index], t("freeSlot"))}
+          thumb={menuThumb(items[menu.index])}
+          entries={menuEntries(menu.index)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -1001,6 +1572,23 @@ export default function App() {
       </AnimatePresence>
     </div>
   );
+}
+
+/** Identité d'une case, indépendante de sa position. */
+function slotKey(item: ViewItem): string | null {
+  return item?.kind === "game" ? `g${item.game.appid}` : item?.kind === "folder" ? `f${item.folder.id}` : null;
+}
+
+/** Titre du menu d'actions : le jeu, le dossier, ou « case libre ». */
+function menuTitle(item: ViewItem, empty: string): string {
+  return item?.kind === "game" ? item.game.name : item?.kind === "folder" ? item.folder.name : empty;
+}
+
+/** Vignette du menu d'actions. */
+function menuThumb(item: ViewItem) {
+  if (item?.kind === "game") return <GameIcon game={item.game} size={32} />;
+  if (item?.kind === "folder") return <FolderArt folder={item.folder} games={item.games} size={32} />;
+  return undefined;
 }
 
 function EmptyState({

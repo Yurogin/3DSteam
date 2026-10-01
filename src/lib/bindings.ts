@@ -5,7 +5,7 @@ import { load, save } from "./storage";
 /** Actions qu'on peut réattribuer, dans l'ordre affiché dans les paramètres. */
 export const BINDABLE: Action[] = [
   "up", "down", "left", "right",
-  "confirm", "back", "grab", "create",
+  "confirm", "back", "grab", "create", "menu",
   "zoomOut", "zoomIn", "search", "settings", "fullscreen", "theme", "sound",
 ];
 
@@ -21,12 +21,13 @@ export interface Bindings {
 export const DEFAULT_BINDINGS: Bindings = {
   keyboard: {
     up: ["ArrowUp"], down: ["ArrowDown"], left: ["ArrowLeft"], right: ["ArrowRight"],
-    confirm: ["Enter"], back: ["Escape", "Backspace"], grab: [" "], create: ["n"],
+    confirm: ["Enter"], back: ["Escape", "Backspace"], grab: [" "], create: ["n"], menu: ["ContextMenu", "o"],
     zoomOut: ["-"], zoomIn: ["+", "="], search: ["/"], settings: ["p"], fullscreen: ["F11"], theme: ["t"], sound: ["m"],
   },
   gamepad: {
     up: [12], down: [13], left: [14], right: [15],
-    confirm: [0], back: [1], grab: [2], create: [3],
+    // Pas de bouton propre au menu : Ⓨ (« create ») l'ouvre déjà sur un jeu ou un dossier.
+    confirm: [0], back: [1], grab: [2], create: [3], menu: [],
     zoomOut: [4], zoomIn: [5], search: [], settings: [8], fullscreen: [9], theme: [], sound: [],
   },
 };

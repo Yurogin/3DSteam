@@ -49,16 +49,28 @@ pub fn list(dir: &Path) -> Vec<ThemeFile> {
 
 /// Enregistre un thème ; le nom de fichier est nettoyé (pas de chemin, pas de caractère spécial).
 pub fn save(dir: &Path, file_name: &str, content: &str) -> Result<PathBuf, String> {
+    save_as(dir, file_name, "3dstheme", content)
+}
+
+/// Enregistre un fichier partageable (thème, Svgii) sous `<nom nettoyé>.<extension>`.
+pub fn save_as(dir: &Path, file_name: &str, extension: &str, content: &str) -> Result<PathBuf, String> {
     let stem: String = file_name
-        .trim_end_matches(".3dstheme")
+        .trim_end_matches(&format!(".{extension}"))
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .take(64)
         .collect();
-    let stem = if stem.is_empty() { "theme".to_string() } else { stem };
-    let path = dir.join(format!("{stem}.3dstheme"));
+    let stem = if stem.is_empty() { extension.to_string() } else { stem };
+    let path = dir.join(format!("{stem}.{extension}"));
     fs::write(&path, content).map_err(|e| format!("écriture de {} : {e}", path.display()))?;
     Ok(path)
+}
+
+/// Dossier des Svgii exportés (`<données de l'app>/svgii/*.svgii`), à envoyer à un ami.
+pub fn svgii_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
+    let dir = app_data_dir.join("svgii");
+    fs::create_dir_all(&dir).map_err(|e| format!("création de {} : {e}", dir.display()))?;
+    Ok(dir)
 }
 
 /// Ouvre le dossier dans l'explorateur de fichiers.

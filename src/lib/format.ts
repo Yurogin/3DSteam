@@ -25,6 +25,22 @@ export function formatPlaytime(minutes: number, t: TFunction, locale: string): s
   return t("playtimeHoursMinutes", { h: hours, m: rest });
 }
 
+/** Débit de téléchargement, à une décimale près. */
+export function formatRate(bytesPerSecond: number, t: TFunction, locale: string): string {
+  const mb = bytesPerSecond / 1024 ** 2;
+  return mb >= 1
+    ? t("megabytesPerSecond", { n: mb.toLocaleString(locale, { maximumFractionDigits: 1 }) })
+    : t("kilobytesPerSecond", { n: Math.max(1, Math.round(bytesPerSecond / 1024)) });
+}
+
+/** Temps restant, à la minute près : plus fin, il ne ferait que clignoter. */
+export function formatEta(seconds: number, t: TFunction): string {
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes <= 1) return t("etaSoon");
+  if (minutes < 60) return t("etaMinutes", { n: minutes });
+  return t("etaHours", { h: Math.floor(minutes / 60), m: String(minutes % 60).padStart(2, "0") });
+}
+
 export function formatSize(bytes: number, t: TFunction, locale: string): string {
   if (!bytes) return "";
   const gb = bytes / 1024 ** 3;

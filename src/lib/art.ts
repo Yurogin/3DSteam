@@ -28,7 +28,8 @@ export function artSources(game: Game, ...kinds: ArtKind[]): string[] {
   for (const kind of kinds) {
     const local = game.art[kind];
     if (local && inTauri) urls.push(convertFileSrc(local));
-    const file = CDN_FILES[kind];
+    // Un jeu hors Steam n'a rien sur le CDN : son numéro n'y désigne aucun jeu.
+    const file = game.shortcut ? null : CDN_FILES[kind];
     if (file) for (const cdn of CDNS) urls.push(`${cdn}/${game.appid}/${file}`);
   }
   return urls;

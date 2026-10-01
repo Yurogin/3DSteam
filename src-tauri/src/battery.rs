@@ -1,4 +1,4 @@
-//! Niveau de batterie de l'ordinateur, affiché dans la barre du haut façon 3DS.
+//! Niveau de batterie de l'ordinateur, affiché dans la barre du haut façon console portable.
 
 use serde::Serialize;
 

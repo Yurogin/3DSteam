@@ -1,5 +1,5 @@
 /**
- * Plateau façon menu HOME : des cases numérotées, remplies colonne par colonne (de haut en bas,
+ * Plateau façon menu de console : des cases numérotées, remplies colonne par colonne (de haut en bas,
  * puis vers la droite). Une case peut être vide, contenir un jeu ou un dossier ; un dossier a son
  * propre plateau (de jeux uniquement). Toutes les fonctions sont pures : elles renvoient un nouveau
  * plateau, ou le même objet si rien ne change.

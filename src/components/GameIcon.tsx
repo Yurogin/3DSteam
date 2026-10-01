@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GameArt } from "./GameArt";
+import { AppIcon } from "../apps/builtin";
 import { artSources, gameHue, initials } from "../lib/art";
 import { useIconStyle } from "../lib/iconStyle";
 import { upscaled, type Upscaler } from "../lib/upscale";
@@ -18,6 +19,11 @@ const PLATE_FILL = 0.72;
  * fois plus. Il n'y a pas de bon traitement universel — voir `iconStyle.ts` pour les cinq au choix.
  */
 export function GameIcon({ game, size }: { game: Game; size: number }) {
+  // Une appli intégrée a son icône dessinée : ni cache Steam, ni CDN.
+  return game.builtin ? <AppIcon id={game.builtin} /> : <SteamIcon game={game} size={size} />;
+}
+
+function SteamIcon({ game, size }: { game: Game; size: number }) {
   const { style } = useIconStyle();
   /** Côté réel de l'icône, mesuré au chargement ; le scan le connaît souvent déjà (`iconSize`). */
   const [natural, setNatural] = useState<number | null>(null);

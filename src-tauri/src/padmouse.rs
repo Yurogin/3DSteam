@@ -90,6 +90,14 @@ fn opened(before: &[isize]) -> Option<isize> {
         .find(|hwnd| !before.contains(hwnd) && rect(*hwnd).is_some())
 }
 
+/// Vrai si la fenêtre au premier plan est une fenêtre de Steam.
+pub fn steam_in_front() -> bool {
+    let front = unsafe { GetForegroundWindow() };
+    let mut buf = [0u16; 64];
+    let len = unsafe { GetClassNameW(front, buf.as_mut_ptr(), buf.len() as i32) };
+    len > 0 && String::from_utf16_lossy(&buf[..len as usize]) == CLASS
+}
+
 /// Vrai si cette fenêtre appartient à 3DSteam.
 fn ours(hwnd: HWND) -> bool {
     let mut pid = 0u32;

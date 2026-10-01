@@ -94,6 +94,11 @@ On startup, the grid renders from a local cache while a background scan rereads 
 - **Download control.** Steam exposes no `steam://` command to pause or cancel a download. 3DSteam
   uses the client's local debugging port, **disabled by default** (⚙ → Steam). Once enabled, any
   local program can control Steam. Without it, these actions open Steam's download list instead.
+- **With Millennium.** Millennium keeps the debugging port to itself, so 3DSteam offers a small
+  Millennium plugin instead (`src-tauri/millennium-plugin/`, ⚙ → Steam). It runs inside Steam's
+  interface and talks to 3DSteam through files, with no open port. It handles pause, resume and
+  cancel, as well as installing and uninstalling without the Steam window. A licence agreement, a
+  key or a lack of space always leaves the Steam window to the user.
 - **Progress.** Steam rarely updates its manifests during a download, so progress combines the
   manifests, the `content_log.txt` log and the bytes written by `steam.exe`.
 

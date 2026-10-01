@@ -488,6 +488,15 @@ const STATE_UPDATING: u64 = 2 | 8 | 256 | 512 | 1024;
 pub const STATE_PAUSED: u64 = 512;
 /// Bit de mise à jour en cours.
 pub const STATE_RUNNING: u64 = 256;
+/// Bit de mise à jour démarrée (des données ont déjà été reçues).
+const STATE_STARTED: u64 = 1024;
+
+/// Une installation annulée laisse son manifeste derrière elle : « mise à jour requise, en
+/// pause » (514), jamais démarrée, jeu absent, et plus rien dans `downloading/`. Mesuré sur deux
+/// annulations : Steam a bien tout désinstallé, ce n'est plus un téléchargement.
+fn cancelled_install(flags: u64, downloading: bool) -> bool {
+    flags & STATE_PAUSED != 0 && flags & (STATE_FULLY_INSTALLED | STATE_STARTED | STATE_RUNNING) == 0 && !downloading
+}
 
 /// Un téléchargement en attente ou en cours, tel que son manifeste le décrit. Ces compteurs ne
 /// sont réécrits par Steam que de loin en loin : `progress.rs` en tire une progression en direct.
@@ -536,6 +545,9 @@ pub fn pending(steam_root: &Path) -> Vec<Pending> {
             let Some(appid) = app.get_u64("appid") else {
                 continue;
             };
+            if cancelled_install(flags, steamapps.join("downloading").join(appid.to_string()).is_dir()) {
+                continue;
+            }
             out.push(Pending {
                 appid: appid as u32,
                 name: app.get_str("name").unwrap_or_default().to_owned(),
@@ -620,6 +632,22 @@ fn open_uri(uri: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// Drapeaux relevés sur une vraie bibliothèque, après deux installations annulées.
+    #[test]
+    fn leftover_of_a_cancelled_install_is_not_a_download() {
+        use super::cancelled_install;
+        // Installation annulée : 514, plus rien dans `downloading/`.
+        assert!(cancelled_install(514, false));
+        // Mise à jour en pause d'un jeu installé, démarrée : 1542, avec ses données.
+        assert!(!cancelled_install(1542, true));
+        // Mise à jour reportée d'un jeu installé, jamais démarrée : 518.
+        assert!(!cancelled_install(518, false));
+        // Première installation mise en pause après avoir reçu des données.
+        assert!(!cancelled_install(2 | 512 | 1024, true));
+        // Même jamais démarrée, une installation qui a déjà un dossier de téléchargement reste.
+        assert!(!cancelled_install(514, true));
+    }
+
     /// Scan de l'installation Steam réelle : `cargo test -- --ignored --nocapture`.
     #[test]
     #[ignore]

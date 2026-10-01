@@ -8,6 +8,7 @@ import {
   saveThemeFile,
   setAutostart,
   setStartupMode,
+  setSteamBridge,
   setSteamControl,
   startupSettings,
   steamControlState,
@@ -792,11 +793,16 @@ function SteamControlSection() {
     };
   }, []);
 
+  // Avec Millennium, le port ne s'ouvre pas : le réglage pose ou retire le plugin à la place.
+  const millennium = state?.millennium ?? false;
+  const on = millennium ? (state?.bridgeInstalled ?? false) : (state?.enabled ?? false);
   const toggle = () => {
     if (!state) return;
     sound.toggle();
     setError(null);
-    setSteamControl(!state.enabled).then(setState, (e) => setError(String(e)));
+    (millennium ? setSteamBridge(!state.bridgeInstalled) : setSteamControl(!state.enabled)).then(setState, (e) =>
+      setError(String(e)),
+    );
   };
   const restart = () => {
     sound.select();
@@ -807,21 +813,28 @@ function SteamControlSection() {
       .finally(() => setRestarting(false));
   };
 
+  // Ce qui tourne ne correspond pas au réglage : seul un redémarrage de Steam l'applique (retirer
+  // le fichier ou le plugin aussi).
+  // Un plugin posé par une version précédente de 3DSteam tourne encore : sa mise à jour (qui sait
+  // aussi installer) attend un redémarrage de Steam.
+  const outdated = state != null && millennium && state.bridgeActive && !state.bridgeCurrent;
+  const pending = state != null && (outdated || on !== (millennium ? state.bridgeActive : state.connected));
   const status = !state
     ? ""
-    : state.connected
-      ? t("steamControlOn")
-      : state.enabled
-        ? t("steamControlRestart")
-        : t("steamControlOff");
+    : outdated
+      ? t("steamBridgeUpdate")
+      : state.connected
+        ? t(millennium ? "steamBridgeOn" : "steamControlOn")
+        : pending
+          ? t("steamControlRestart")
+          : t(millennium ? "steamControlMillennium" : "steamControlOff");
   return (
-    <Section title={t("steamControl")} description={t("steamControlDesc")}>
+    <Section title={t("steamControl")} description={t(millennium ? "steamControlDescMillennium" : "steamControlDesc")}>
       <div className="flex flex-col gap-3 rounded-2xl bg-surface-2 p-4">
-        <Toggle label={t("steamControlToggle")} on={state?.enabled ?? false} onChange={toggle} />
+        <Toggle label={t(millennium ? "steamBridgeToggle" : "steamControlToggle")} on={on} onChange={toggle} />
         <div className="flex items-center justify-between gap-3">
           <span className={`text-xs font-bold ${state?.connected ? "text-accent-strong" : "text-muted"}`}>{error ?? status}</span>
-          {/* Retirer le fichier aussi demande un redémarrage pour refermer le port. */}
-          {state && state.enabled !== state.connected && (
+          {pending && (
             <ActionButton primary onClick={restart}>
               {restarting ? t("steamRestarting") : t("steamRestart")}
             </ActionButton>

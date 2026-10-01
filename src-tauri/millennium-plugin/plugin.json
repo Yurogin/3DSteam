@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/SteamClientHomebrew/Millennium/main/src/sys/plugin-schema.json",
+  "name": "3dsteam-bridge",
+  "common_name": "3DSteam",
+  "description": "Lets 3DSteam install, uninstall, pause, resume and cancel Steam games. Installed and removed by 3DSteam.",
+  "version": "1.1.0",
+  "backendType": "lua"
+}

@@ -38,6 +38,9 @@ import { useHorizontalWheel } from "./hooks/useHorizontalWheel";
 import { DEFAULT_THEME, useTheme } from "./themes/themes";
 import { defaultLang, useI18n } from "./lib/i18n";
 import {
+  bridgeFolders,
+  bridgeInstall,
+  bridgeUninstall,
   clearCache,
   downloadAction,
   installGame,
@@ -54,7 +57,9 @@ import {
   activityStats,
   uninstallGame,
   type DownloadAction,
+  type InstallFolder,
 } from "./lib/api";
+import { formatSize } from "./lib/format";
 import { isFullscreen, setFullscreen } from "./lib/fullscreen";
 import { DEFAULT_CURSOR, useCursorStyle } from "./lib/cursorStyle";
 import { DEFAULT_ICON_STYLE, useIconStyle } from "./lib/iconStyle";
@@ -168,6 +173,20 @@ export default function App() {
   const [menu, setMenu] = useState<{ index: number; x: number; y: number; flipX?: number } | null>(null);
   /** Menu du bouton marche/arrêt (barre du haut) : réduire ou quitter. */
   const [powerMenu, setPowerMenu] = useState<DOMRect | null>(null);
+  /**
+   * Le plugin Millennium à jour tourne-t-il en ce moment ? Demandé à chaque action et pas gardé :
+   * Steam peut avoir redémarré (et chargé ou perdu le plugin) depuis l'ouverture de 3DSteam.
+   */
+  const bridgeReady = useCallback(
+    () =>
+      steamControlState().then(
+        (s) => s.bridgeCurrent,
+        () => false,
+      ),
+    [],
+  );
+  /** Petit menu de choix ouvert par une action : bibliothèque où installer, confirmation. */
+  const [choice, setChoice] = useState<{ title: string; game: Game; entries: MenuEntry[]; x: number; y: number; flipX?: number } | null>(null);
   /** Séquence de lancement d'un jeu, en plein écran, et la case d'où part son icône. */
   const [splash, setSplash] = useState<{ game: Game; from: DOMRect | null } | null>(null);
   /** Fin de la séquence de lancement : le jeu s'est ouvert, s'est refermé, ou se fait attendre. */
@@ -186,7 +205,8 @@ export default function App() {
   splashRef.current = splash;
   /** Appli intégrée ouverte en plein écran. */
   const [openAppId, setOpenAppId] = useState<BuiltinId | null>(null);
-  const modalOpen = editor != null || settingsOpen || themeEditor != null || menu != null || powerMenu != null || openAppId != null;
+  const modalOpen =
+    editor != null || settingsOpen || themeEditor != null || menu != null || powerMenu != null || choice != null || openAppId != null;
   const [query, setQuery] = useState("");
   /** Vue « Tout » : les jeux installés et ceux que le client connaît, à plat. */
   const [showAll, setShowAll] = useState(false);
@@ -459,9 +479,15 @@ export default function App() {
    * accepter un contrat de licence pour lui —, on lui donne de quoi le faire à la manette ou au
    * clavier.
    */
-  const install = useCallback(
+  /** Où ouvrir un petit menu de choix : contre la tuile du curseur, comme le menu d'actions. */
+  const choiceAnchor = useCallback(() => {
+    const rect = gridArea?.querySelector(`[data-slot="${cursorRef.current}"] [data-square]`)?.getBoundingClientRect();
+    return rect ? { x: rect.right + 10, y: rect.top, flipX: rect.left - 10 } : { x: window.innerWidth / 2 - 120, y: window.innerHeight / 3 };
+  }, [gridArea]);
+
+  /** Par la boîte d'installation de Steam, que l'utilisateur valide (pilotable à la manette). */
+  const installInSteam = useCallback(
     async (game: Game) => {
-      sound.select();
       showToast(padMouse ? t("installPad", { name: game.name }) : t("installConfirm"));
       try {
         await installGame(game.appid, padMouse);
@@ -478,10 +504,73 @@ export default function App() {
   );
 
   /**
+   * Par le plugin Millennium : le téléchargement part sans la boîte de Steam. Un contrat de licence,
+   * un manque de place ou une clé laissent la boîte de Steam à l'utilisateur.
+   */
+  const installByBridge = useCallback(
+    async (game: Game, folder: number | null) => {
+      showToast(t("installStarting", { name: game.name }));
+      try {
+        const outcome = await bridgeInstall(game.appid, folder, padMouse);
+        if (outcome.started) {
+          sound.arrive();
+          showToast(t("installStarted", { name: game.name }));
+          window.setTimeout(() => void rescan(), 6000);
+          return;
+        }
+        const reason = outcome.reason ?? "failed";
+        if (reason === "eula") showToast(t("installEula", { name: game.name }));
+        else if (reason === "space") showToast(t("installSpace", { name: game.name }));
+        else if (reason === "steam" || reason === "folder") showToast(t("installInSteamWindow", { name: game.name }));
+        else {
+          sound.error();
+          showToast(t("installFailed", { name: game.name }));
+        }
+        window.setTimeout(() => void rescan(), 6000);
+      } catch {
+        // Plugin injoignable : la boîte de Steam, comme sans Millennium.
+        void installInSteam(game);
+      }
+    },
+    [padMouse, rescan, showToast, t, installInSteam],
+  );
+
+  const install = useCallback(
+    async (game: Game) => {
+      sound.select();
+      if (!(await bridgeReady())) return installInSteam(game);
+      let folders: InstallFolder[] = [];
+      try {
+        folders = await bridgeFolders();
+      } catch {
+        return installInSteam(game);
+      }
+      if (folders.length <= 1) return installByBridge(game, null);
+      // Plusieurs bibliothèques : on choisit où, celle par défaut de Steam en tête.
+      const sorted = [...folders].sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+      setChoice({
+        title: t("installWhere", { name: game.name }),
+        game,
+        ...choiceAnchor(),
+        entries: sorted.map((folder) => ({
+          id: `folder-${folder.index}`,
+          label: t("installFolderEntry", {
+            folder: folder.label || folder.path,
+            free: formatSize(folder.free, t, locale),
+          }),
+          icon: <DownloadIcon width={18} height={18} />,
+          onSelect: () => void installByBridge(game, folder.index),
+        })),
+      });
+    },
+    [bridgeReady, installInSteam, installByBridge, choiceAnchor, t, locale],
+  );
+
+  /**
    * Désinstallation : même boîte imposée par Steam, même pilotage. C'est l'utilisateur qui
    * confirme, dans Steam ; le jeu quitte ensuite la grille et laisse sa case vide.
    */
-  const uninstall = useCallback(
+  const uninstallInSteam = useCallback(
     async (game: Game) => {
       showToast(padMouse ? t("uninstallPad", { name: game.name }) : t("uninstallConfirm", { name: game.name }));
       // Si Steam confirme, la tuile volera en éclats au scan qui constate son départ.
@@ -499,6 +588,42 @@ export default function App() {
     [padMouse, rescan, showToast, t],
   );
 
+  /** Demande confirmation dans 3DSteam, puis lance `action` : la boîte de Steam ne s'ouvrira pas. */
+  const confirmInApp = useCallback(
+    (game: Game, title: string, label: string, action: () => void) => {
+      setChoice({
+        title,
+        game,
+        ...choiceAnchor(),
+        entries: [
+          { id: "keep", label: t("cancel"), icon: <ExitIcon width={18} height={18} />, onSelect: () => {} },
+          { id: "confirm", label, icon: <TrashIcon width={18} height={18} />, danger: true, onSelect: action },
+        ],
+      });
+    },
+    [choiceAnchor, t],
+  );
+
+  /** Avec le plugin Millennium, la confirmation se fait dans 3DSteam, sans la boîte de Steam. */
+  const uninstall = useCallback(
+    async (game: Game) => {
+      if (!(await bridgeReady())) return void uninstallInSteam(game);
+      confirmInApp(game, t("uninstallAsk", { name: game.name }), t("menuUninstall"), () => {
+        watchedRef.current.add(game.appid);
+        bridgeUninstall(game.appid).then(
+          () => {
+            showToast(t("uninstallStarted", { name: game.name }));
+            void rescan();
+            window.setTimeout(() => void rescan(), 5000);
+          },
+          // Plugin injoignable : la boîte de Steam, comme sans Millennium.
+          () => void uninstallInSteam(game),
+        );
+      });
+    },
+    [bridgeReady, uninstallInSteam, confirmInApp, showToast, rescan, t],
+  );
+
   // Journal d'activité : à chaque scan, le cumul du jour est noté, même si le journal reste fermé.
   useEffect(() => {
     if (scannedAt) void activityStats().then(recordSnapshot).catch(() => {});
@@ -509,8 +634,12 @@ export default function App() {
   useEffect(() => {
     if (settingsOpen) return;
     void steamControlState()
-      .then((s) => setDirectControl(s.connected))
-      .catch(() => setDirectControl(false));
+      .then((s) => {
+        setDirectControl(s.connected);
+      })
+      .catch(() => {
+        setDirectControl(false);
+      });
   }, [settingsOpen]);
 
   /**
@@ -519,18 +648,26 @@ export default function App() {
    * est ouvert, sinon par la liste des téléchargements de Steam, qu'on pilote soi-même.
    */
   const controlDownload = useCallback(
-    async (game: Game, action: DownloadAction) => {
+    async (game: Game, action: DownloadAction, confirmed = false) => {
       sound.select();
       const dialog = action === "cancel" && !game.installed;
+      // Avec le plugin Millennium, annuler une installation se fait sans la boîte de Steam :
+      // c'est 3DSteam qui demande confirmation.
+      const bridge = dialog && !confirmed && (await bridgeReady());
+      if (bridge) {
+        confirmInApp(game, t("cancelAsk", { name: game.name }), t("cancelDownload"), () => void controlDownload(game, action, true));
+        return;
+      }
       if (dialog) {
         watchedRef.current.add(game.appid);
-        showToast(t("cancelConfirm", { name: game.name }));
+        if (!confirmed) showToast(t("cancelConfirm", { name: game.name }));
       }
       try {
-        const how = await downloadAction(game.appid, action, game.installed, padMouse);
+        const how = await downloadAction(game.appid, action, game.installed, padMouse, confirmed);
         if (how === "steam") showToast(padMouse ? t("downloadInSteamPad") : t("downloadInSteam"));
         else if (how === "direct") {
-          const done = action === "pause" ? "pausedToast" : action === "resume" ? "resumedToast" : "cancelledToast";
+          const done =
+            action === "pause" ? "pausedToast" : action === "resume" ? "resumedToast" : game.installed ? "cancelledToast" : "installCancelled";
           showToast(t(done, { name: game.name }));
         }
         if (action === "cancel") {
@@ -542,7 +679,7 @@ export default function App() {
         showToast(String(e));
       }
     },
-    [padMouse, rescan, showToast, t],
+    [padMouse, rescan, showToast, t, bridgeReady, confirmInApp],
   );
 
   /** Appel à Steam sans retour attendu (magasin, dossier, téléchargements) : seule l'erreur compte. */
@@ -1118,7 +1255,8 @@ export default function App() {
           return (active as HTMLElement | null)?.click?.();
         }
         if (a === "back") {
-          if (menu) setMenu(null);
+          if (choice) setChoice(null);
+          else if (menu) setMenu(null);
           else if (powerMenu) setPowerMenu(null);
           else if (openAppId) closeApp();
           else if (settingsOpen) setSettingsOpen(false);
@@ -1155,7 +1293,7 @@ export default function App() {
         return a === "create" && !occupied ? startNewFolder() : openMenu(cursorRef.current);
       }
     },
-    [splash, oskInput, modalOpen, navMode, menu, powerMenu, openAppId, closeApp, settingsOpen, editor, themeEditor, themes, held, rows, gridArea, toggleFullscreen, changeZoom, cycleTheme, toggleSound, leaveUi, move, dropHeld, activate, cancelHeld, back, grab, startNewFolder, openMenu],
+    [splash, oskInput, modalOpen, navMode, menu, powerMenu, choice, openAppId, closeApp, settingsOpen, editor, themeEditor, themes, held, rows, gridArea, toggleFullscreen, changeZoom, cycleTheme, toggleSound, leaveUi, move, dropHeld, activate, cancelHeld, back, grab, startNewFolder, openMenu],
   );
 
   useEffect(() => {
@@ -1560,6 +1698,18 @@ export default function App() {
           thumb={menuThumb(items[menu.index])}
           entries={menuEntries(menu.index)}
           onClose={() => setMenu(null)}
+        />
+      )}
+
+      {choice && (
+        <ActionMenu
+          x={choice.x}
+          y={choice.y}
+          flipX={choice.flipX}
+          title={choice.title}
+          thumb={<GameIcon game={choice.game} size={32} />}
+          entries={choice.entries}
+          onClose={() => setChoice(null)}
         />
       )}
 

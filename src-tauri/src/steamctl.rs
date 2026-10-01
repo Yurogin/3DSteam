@@ -8,8 +8,13 @@
 //!
 //! C'est un choix de l'utilisateur, désactivé par défaut : une fois le port ouvert (sur
 //! 127.0.0.1:8080 seulement), n'importe quel programme de ce PC peut piloter Steam.
+//!
+//! Millennium, lui, lance l'interface de Steam avec `--remote-debugging-pipe` : le débogage passe
+//! par un canal privé, et le fichier n'ouvre plus aucun port. On le détecte dans
+//! `logs/webhelper.txt`, et les commandes passent alors par le plugin de `millennium.rs`.
 
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -17,6 +22,8 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tungstenite::Message;
+
+use crate::millennium;
 
 /// Fichier dont la présence fait ouvrir à Steam son port de débogage.
 const FLAG_FILE: &str = ".cef-enable-remote-debugging";
@@ -26,6 +33,10 @@ const LOCAL_CLIENT: &str = "0";
 /// Steam répond en quelques millisecondes : au-delà, il n'est pas là (ou pas prêt).
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(300);
 const TIMEOUT: Duration = Duration::from_millis(1500);
+/// Fin du journal de l'interface lue pour trouver son dernier lancement : plusieurs jours de
+/// journal, sur un fichier qui dépasse vite les 5 Mo.
+const WEBHELPER_LOG_TAIL: u64 = 1024 * 1024;
+const WEBHELPER_LAUNCH: &str = "Startup - webhelper launched";
 
 fn flag(steam_root: &Path) -> PathBuf {
     steam_root.join(FLAG_FILE)
@@ -36,12 +47,68 @@ fn flag(steam_root: &Path) -> PathBuf {
 pub struct ControlState {
     /// Le fichier est posé : Steam ouvrira son port à son prochain démarrage.
     pub enabled: bool,
-    /// Le port répond : les commandes passent dès maintenant.
+    /// Le port ou le plugin Millennium répond : les commandes passent dès maintenant.
     pub connected: bool,
+    /// Millennium tient le débogage de Steam (canal privé) : le port ne s'ouvrira pas, et c'est
+    /// le plugin qui sert.
+    pub millennium: bool,
+    /// Le plugin 3DSteam est posé dans Millennium : il tournera au prochain démarrage de Steam.
+    pub bridge_installed: bool,
+    /// Le plugin tourne dans l'interface de Steam.
+    pub bridge_active: bool,
+    /// Le plugin qui tourne est celui de ce 3DSteam : il sait aussi installer et désinstaller.
+    /// Sinon, ses nouveaux fichiers attendent le prochain démarrage de Steam.
+    pub bridge_current: bool,
 }
 
 pub fn state(steam_root: &Path) -> ControlState {
-    ControlState { enabled: flag(steam_root).is_file(), connected: shared_context().is_ok() }
+    // Un plugin posé par une version précédente de 3DSteam est mis à jour : le nouveau code tournera
+    // au prochain démarrage de Steam.
+    if let Err(e) = millennium::update_plugin(steam_root) {
+        eprintln!("[3dsteam] mise à jour du plugin Millennium : {e}");
+    }
+    let bridge_active = millennium::active(steam_root);
+    // Le port n'est interrogé que s'il peut servir : avec le plugin, c'est lui qui répond.
+    let port = !bridge_active && shared_context().is_ok();
+    ControlState {
+        enabled: flag(steam_root).is_file(),
+        connected: port || bridge_active,
+        millennium: bridge_active || (!port && last_launch_uses_pipe(&webhelper_log_tail(steam_root))),
+        bridge_installed: millennium::installed(steam_root),
+        bridge_active,
+        bridge_current: millennium::current(steam_root),
+    }
+}
+
+/// Pose ou retire le plugin Millennium. Steam ne le charge (ou ne le lâche) qu'à son redémarrage.
+pub fn set_bridge(steam_root: &Path, enabled: bool) -> Result<ControlState, String> {
+    if enabled {
+        millennium::install_plugin(steam_root)?;
+    } else {
+        millennium::remove_plugin(steam_root)?;
+    }
+    Ok(state(steam_root))
+}
+
+fn webhelper_log_tail(steam_root: &Path) -> String {
+    let Ok(mut file) = File::open(steam_root.join("logs").join("webhelper.txt")) else { return String::new() };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if file.seek(SeekFrom::Start(len.saturating_sub(WEBHELPER_LOG_TAIL))).is_err() {
+        return String::new();
+    }
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Le dernier lancement de l'interface dans le journal passe-t-il par un canal de débogage privé ?
+fn last_launch_uses_pipe(log: &str) -> bool {
+    log.lines()
+        .rev()
+        .find(|line| line.contains(WEBHELPER_LAUNCH))
+        .is_some_and(|line| line.contains("--remote-debugging-pipe"))
 }
 
 /// Pose ou retire le fichier. Steam ne le lit qu'à son démarrage : il faut le relancer.
@@ -148,8 +215,17 @@ pub enum Action {
     Remove,
 }
 
-/// Pause, reprise ou retrait de la file, exactement comme les boutons de la liste de Steam.
-pub fn download(appid: u32, action: Action) -> Result<(), String> {
+/// Pause, reprise ou retrait de la file, exactement comme les boutons de la liste de Steam : par
+/// le plugin Millennium s'il tourne, sinon par le port de débogage.
+pub fn download(steam_root: &Path, appid: u32, action: Action) -> Result<(), String> {
+    if millennium::active(steam_root) {
+        let name = match action {
+            Action::Pause => "pause",
+            Action::Resume => "resume",
+            Action::Remove => "remove",
+        };
+        return millennium::download(steam_root, appid, name);
+    }
     let client = LOCAL_CLIENT;
     let call = match action {
         Action::Pause => format!("await SteamClient.Downloads.PauseAppUpdate({appid}, '{client}');"),
@@ -201,7 +277,8 @@ pub fn steam_pid() -> Option<u32> {
     None
 }
 
-/// Ferme Steam proprement, attend qu'il soit parti, puis le relance : il lit alors le fichier.
+/// Ferme Steam proprement, attend qu'il soit parti, puis le relance : il lit alors le fichier, et
+/// Millennium charge (ou lâche) le plugin.
 pub fn restart(steam_root: &Path) -> Result<(), String> {
     crate::steam::exit()?;
     let deadline = Instant::now() + Duration::from_secs(40);
@@ -211,6 +288,9 @@ pub fn restart(steam_root: &Path) -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(400));
     }
+    // Steam fermé, Millennium aussi : sa configuration peut être modifiée sans être réécrite.
+    // Une erreur ici n'empêche pas de relancer Steam.
+    let synced = millennium::sync_config(steam_root);
     // Relancé par l'explorateur, pas comme enfant de 3DSteam : fermer 3DSteam (ou le relancer en
     // développement) ne doit pas emporter Steam avec lui.
     #[cfg(windows)]
@@ -224,7 +304,8 @@ pub fn restart(steam_root: &Path) -> Result<(), String> {
         let _ = steam_root;
         std::process::Command::new("steam")
     };
-    command.spawn().map(|_| ()).map_err(|e| format!("Steam : {e}"))
+    command.spawn().map_err(|e| format!("Steam : {e}"))?;
+    synced.map_err(|e| format!("Millennium : {e}"))
 }
 
 #[cfg(test)]
@@ -239,6 +320,26 @@ mod tests {
         assert_eq!(complete_body(&response), None);
         response.extend_from_slice(b":1}]");
         assert_eq!(complete_body(&response).as_deref(), Some("[{\"a\":1"));
+    }
+
+    #[test]
+    fn detects_private_debug_pipe_from_last_launch() {
+        let plain = "[2026-08-10 07:55:48] Startup - webhelper launched pid: 1 commandline: \"steamwebhelper.exe\" -nocrashdialog -lang=fr_FR";
+        let piped = "[2026-10-01 19:08:18] Startup - webhelper launched pid: 2 commandline: \"steamwebhelper.exe\" --millennium-loopback-ipc-handles=1540,1552 --remote-debugging-io-pipes=1520,1532 --remote-debugging-pipe -nocrashdialog";
+        let other = "[2026-10-01 19:10:00] SP Shared JS Context-'SharedJSCo': CreatingPopup name:notificationtoasts";
+        assert!(last_launch_uses_pipe(&format!("{plain}\n{piped}\n{other}")));
+        // Millennium désinstallé : seul le dernier lancement compte.
+        assert!(!last_launch_uses_pipe(&format!("{piped}\n{plain}\n{other}")));
+        assert!(!last_launch_uses_pipe(other));
+        assert!(!last_launch_uses_pipe(""));
+    }
+
+    /// État réel sur ce PC, port et canal privé compris : `cargo test steamctl -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_state() {
+        let root = crate::steam::find_steam_root().expect("Steam introuvable");
+        println!("{:?}", state(&root));
     }
 
     /// Port de Steam réel, s'il est ouvert : `cargo test steamctl -- --ignored --nocapture`.

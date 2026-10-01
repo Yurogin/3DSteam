@@ -266,6 +266,8 @@ pub fn downloads(steam_root: &Path) -> Vec<Download> {
         at: Instant::now(),
     });
     live.journal.refresh();
+    // Désinstallé d'après le journal : le manifeste qui traîne encore n'est plus un téléchargement.
+    pending.retain(|p| !live.journal.apps.get(&p.appid).is_some_and(|l| l.state.starts_with("Uninstalled")));
 
     let now = Instant::now();
     let elapsed = now.duration_since(live.at).as_secs_f64();

@@ -240,8 +240,18 @@ export type DownloadAction = "pause" | "resume" | "cancel";
  */
 export type DownloadHandled = "direct" | "dialog" | "steam";
 
-export function downloadAction(appid: number, action: DownloadAction, installed: boolean, padMouse: boolean): Promise<DownloadHandled> {
-  if (inTauri) return invoke<DownloadHandled>("download_action", { appid, action, installed, padMouse });
+/**
+ * `confirmed` : l'utilisateur a confirmé dans 3DSteam. Seulement alors, avec le plugin Millennium,
+ * l'annulation d'une installation se fait sans la boîte de Steam.
+ */
+export function downloadAction(
+  appid: number,
+  action: DownloadAction,
+  installed: boolean,
+  padMouse: boolean,
+  confirmed = false,
+): Promise<DownloadHandled> {
+  if (inTauri) return invoke<DownloadHandled>("download_action", { appid, action, installed, padMouse, confirmed });
   if (action === "pause") demoPaused.add(appid);
   else if (action === "resume") demoPaused.delete(appid);
   else demoCancelled.add(appid);
@@ -251,8 +261,55 @@ export function downloadAction(appid: number, action: DownloadAction, installed:
 export interface SteamControl {
   /** Le fichier est posé : Steam ouvrira son port de débogage à son prochain démarrage. */
   enabled: boolean;
-  /** Le port répond : pause, reprise et annulation passent directement. */
+  /** Le port ou le plugin Millennium répond : pause, reprise et annulation passent directement. */
   connected: boolean;
+  /** Millennium tient le débogage de Steam : le port ne s'ouvrira pas, c'est le plugin qui sert. */
+  millennium: boolean;
+  /** Le plugin 3DSteam est posé dans Millennium : il tournera au prochain démarrage de Steam. */
+  bridgeInstalled: boolean;
+  /** Le plugin tourne dans l'interface de Steam. */
+  bridgeActive: boolean;
+  /** Le plugin qui tourne est celui de ce 3DSteam : il sait aussi installer et désinstaller. */
+  bridgeCurrent: boolean;
+}
+
+/** Une bibliothèque de Steam où installer un jeu. */
+export interface InstallFolder {
+  index: number;
+  path: string;
+  label: string;
+  drive: string;
+  /** Place libre, en octets. */
+  free: number;
+  isDefault: boolean;
+}
+
+/**
+ * Issue d'une installation par le plugin Millennium. Sans `started`, `reason` dit pourquoi :
+ * `eula` (contrat à accepter), `space`, `folder` et `steam` laissent la fenêtre de Steam à
+ * l'utilisateur ; `failed`, `timeout` et `replaced` non.
+ */
+export interface InstallOutcome {
+  started: boolean;
+  reason?: string | null;
+}
+
+export function bridgeFolders(): Promise<InstallFolder[]> {
+  if (inTauri) return invoke<InstallFolder[]>("bridge_folders");
+  return Promise.resolve([
+    { index: 0, path: "C:\\Program Files (x86)\\Steam", label: "", drive: "C:", free: 84e9, isDefault: true },
+    { index: 1, path: "D:\\SteamLibrary", label: "", drive: "D:", free: 612e9, isDefault: false },
+  ]);
+}
+
+export function bridgeInstall(appid: number, folder: number | null, padMouse: boolean): Promise<InstallOutcome> {
+  if (inTauri) return invoke<InstallOutcome>("bridge_install", { appid, folder, padMouse });
+  return new Promise((resolve) => setTimeout(() => resolve({ started: true }), 600));
+}
+
+export function bridgeUninstall(appid: number): Promise<void> {
+  if (inTauri) return invoke("bridge_uninstall", { appid });
+  return Promise.resolve();
 }
 
 export function steamControlState(): Promise<SteamControl> {
@@ -265,14 +322,30 @@ export function setSteamControl(enabled: boolean): Promise<SteamControl> {
   return Promise.resolve({ ...demoControl });
 }
 
+/** Pose ou retire le plugin 3DSteam de Millennium ; il se charge au redémarrage de Steam. */
+export function setSteamBridge(enabled: boolean): Promise<SteamControl> {
+  if (inTauri) return invoke<SteamControl>("set_steam_bridge", { enabled });
+  demoControl.bridgeInstalled = enabled;
+  return Promise.resolve({ ...demoControl });
+}
+
 /** Ferme Steam, attend qu'il soit parti, puis le relance. */
 export function restartSteam(): Promise<void> {
   if (inTauri) return invoke("restart_steam");
-  demoControl.connected = demoControl.enabled;
+  demoControl.bridgeActive = demoControl.millennium && demoControl.bridgeInstalled;
+  demoControl.bridgeCurrent = demoControl.bridgeActive;
+  demoControl.connected = demoControl.millennium ? demoControl.bridgeActive : demoControl.enabled;
   return new Promise((resolve) => setTimeout(resolve, 1500));
 }
 
-const demoControl: SteamControl = { enabled: false, connected: false };
+const demoControl: SteamControl = {
+  enabled: false,
+  connected: false,
+  millennium: false,
+  bridgeInstalled: false,
+  bridgeActive: false,
+  bridgeCurrent: false,
+};
 /** Dead Cells commence en pause, pour montrer les deux états. */
 const demoPaused = new Set<number>([588650]);
 const demoCancelled = new Set<number>();

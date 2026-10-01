@@ -95,6 +95,11 @@ la bibliothèque Steam : `libraryfolders.vdf`, manifestes `appmanifest_*.acf`, c
   ou annuler. 3DSteam passe par le port de débogage local du client, **désactivé par défaut**
   (⚙ → Steam). Une fois activé, n'importe quel programme local peut piloter Steam. Sans lui, ces
   actions ouvrent la liste des téléchargements de Steam.
+- **Avec Millennium.** Millennium garde le port de débogage pour lui. 3DSteam propose alors un petit
+  plugin Millennium (`src-tauri/millennium-plugin/`, ⚙ → Steam) qui tourne dans l'interface de
+  Steam et communique par fichiers, sans ouvrir de port. Il gère pause, reprise et annulation,
+  ainsi que l'installation et la désinstallation sans la fenêtre de Steam. Un contrat de licence,
+  une clé ou un manque de place laissent toujours la fenêtre de Steam à l'utilisateur.
 - **Progression.** Steam met rarement à jour ses manifestes pendant un téléchargement. La
   progression croise donc les manifestes, le journal `content_log.txt` et les octets écrits par
   `steam.exe`.

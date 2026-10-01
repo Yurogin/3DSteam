@@ -4,6 +4,7 @@ mod cache;
 mod gamewatch;
 mod icons;
 mod media;
+mod millennium;
 #[cfg(windows)]
 mod padmouse;
 mod profile;
@@ -94,6 +95,92 @@ async fn uninstall_game(app: AppHandle, appid: u32, pad_mouse: bool) -> Result<b
     steam_dialog(app, pad_mouse, move || steam::uninstall(appid)).await
 }
 
+/// Après une demande au plugin Millennium qui n'attend rien de l'utilisateur, Steam peut quand
+/// même passer devant : sa fenêtre d'installation s'ouvre le temps que le plugin la valide, ou sa
+/// fenêtre principale se montre. Pendant quelques secondes, chaque fois qu'une fenêtre de Steam
+/// prend le premier plan, 3DSteam le reprend. Si l'utilisateur est passé à un autre programme, on
+/// n'y touche pas.
+/// La surveillance tourne à part : la réponse à l'interface n'attend pas.
+fn reclaim_focus(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        const WATCH: Duration = Duration::from_secs(3);
+        const STEP: Duration = Duration::from_millis(150);
+        let Some(window) = app.get_webview_window("main") else { return };
+        tauri::async_runtime::spawn_blocking(move || {
+            let deadline = std::time::Instant::now() + WATCH;
+            while std::time::Instant::now() < deadline {
+                if padmouse::steam_in_front() {
+                    let _ = window.set_focus();
+                }
+                std::thread::sleep(STEP);
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
+/// Bibliothèques de Steam où installer, par le plugin Millennium.
+#[tauri::command]
+async fn bridge_folders() -> Result<Vec<millennium::Folder>, String> {
+    let root = steam_root().ok_or("Installation de Steam introuvable")?;
+    tauri::async_runtime::spawn_blocking(move || millennium::folders(root))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Installe un jeu par le plugin Millennium, sans la boîte de Steam quand rien n'y pose question.
+/// Sinon (contrat de licence, place, clé), la boîte de Steam reste à l'écran : avec `padMouse`,
+/// la manette et le clavier la pilotent, comme pour `install_game`.
+#[tauri::command]
+async fn bridge_install(
+    app: AppHandle,
+    appid: u32,
+    folder: Option<u32>,
+    pad_mouse: bool,
+) -> Result<millennium::InstallOutcome, String> {
+    let root = steam_root().ok_or("Installation de Steam introuvable")?;
+    // Relevé avant la demande : seule une fenêtre apparue ensuite sera prise en charge.
+    #[cfg(windows)]
+    let before = if pad_mouse { padmouse::windows() } else { Vec::new() };
+    let outcome = tauri::async_runtime::spawn_blocking(move || millennium::install(root, appid, folder))
+        .await
+        .map_err(|e| e.to_string())??;
+    if !outcome.needs_steam_window() {
+        reclaim_focus(&app);
+        return Ok(outcome);
+    }
+    #[cfg(windows)]
+    if pad_mouse {
+        let handled = tauri::async_runtime::spawn_blocking(move || {
+            padmouse::drive(&before, Duration::from_secs(5), Duration::from_secs(300))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        if handled {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = pad_mouse;
+    Ok(outcome)
+}
+
+/// Désinstalle un jeu par le plugin Millennium, sans la boîte de Steam : l'utilisateur a confirmé
+/// dans 3DSteam.
+#[tauri::command]
+async fn bridge_uninstall(app: AppHandle, appid: u32) -> Result<(), String> {
+    let root = steam_root().ok_or("Installation de Steam introuvable")?;
+    tauri::async_runtime::spawn_blocking(move || millennium::uninstall(root, appid))
+        .await
+        .map_err(|e| e.to_string())??;
+    reclaim_focus(&app);
+    Ok(())
+}
+
 /// Ouvre une boîte de Steam par `open`, puis la fait piloter au clavier et à la manette.
 async fn steam_dialog(
     app: AppHandle,
@@ -153,10 +240,21 @@ async fn download_action(
     action: String,
     installed: bool,
     pad_mouse: bool,
+    confirmed: bool,
 ) -> Result<Handled, String> {
+    let root = steam_root().ok_or("Installation de Steam introuvable")?;
     let action = match action.as_str() {
         "pause" => steamctl::Action::Pause,
         "resume" => steamctl::Action::Resume,
+        // Avec le plugin Millennium, sans la boîte de Steam, mais seulement si l'utilisateur a
+        // confirmé dans 3DSteam : sinon c'est la boîte de Steam qui demande.
+        "cancel" if !installed && confirmed && millennium::current(root) => {
+            tauri::async_runtime::spawn_blocking(move || millennium::uninstall(root, appid))
+                .await
+                .map_err(|e| e.to_string())??;
+            reclaim_focus(&app);
+            return Ok(Handled::Direct);
+        }
         "cancel" if !installed => {
             steam_dialog(app, pad_mouse, move || steam::uninstall(appid)).await?;
             return Ok(Handled::Dialog);
@@ -164,7 +262,7 @@ async fn download_action(
         "cancel" => steamctl::Action::Remove,
         other => return Err(format!("action inconnue : {other}")),
     };
-    let direct = tauri::async_runtime::spawn_blocking(move || steamctl::download(appid, action))
+    let direct = tauri::async_runtime::spawn_blocking(move || steamctl::download(root, appid, action))
         .await
         .map_err(|e| e.to_string())?;
     if direct.is_ok() {
@@ -245,6 +343,15 @@ async fn steam_control_state() -> Result<steamctl::ControlState, String> {
 async fn set_steam_control(enabled: bool) -> Result<steamctl::ControlState, String> {
     let root = steam_root().ok_or("Installation de Steam introuvable")?;
     tauri::async_runtime::spawn_blocking(move || steamctl::set_enabled(root, enabled))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Pose ou retire le plugin 3DSteam de Millennium (voir `millennium.rs`).
+#[tauri::command]
+async fn set_steam_bridge(enabled: bool) -> Result<steamctl::ControlState, String> {
+    let root = steam_root().ok_or("Installation de Steam introuvable")?;
+    tauri::async_runtime::spawn_blocking(move || steamctl::set_bridge(root, enabled))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -484,6 +591,10 @@ pub fn run() {
             screenshots,
             steam_control_state,
             set_steam_control,
+            set_steam_bridge,
+            bridge_folders,
+            bridge_install,
+            bridge_uninstall,
             restart_steam,
             quit_app,
             game_state,

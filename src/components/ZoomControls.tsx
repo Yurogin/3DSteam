@@ -7,6 +7,8 @@ import { useI18n } from "../lib/i18n";
 interface Props {
   level: number;
   levels: number;
+  /** Niveau le plus dézoomé permis : un petit écran interdit les rangées en trop. */
+  minLevel?: number;
   onZoom: (direction: 1 | -1) => void;
 }
 
@@ -27,11 +29,11 @@ const RoundButton = ({ onClick, disabled, label, children }: { onClick: () => vo
 );
 
 /** Boutons − / + façon console portable, avec l'indicateur de niveau entre les deux. */
-export function ZoomControls({ level, levels, onZoom }: Props) {
+export function ZoomControls({ level, levels, minLevel = 0, onZoom }: Props) {
   const { t } = useI18n();
   return (
     <div className="flex items-center gap-2">
-      <RoundButton label={t("zoomOut")} disabled={level === 0} onClick={() => onZoom(-1)}>
+      <RoundButton label={t("zoomOut")} disabled={level <= minLevel} onClick={() => onZoom(-1)}>
         <MinusIcon />
       </RoundButton>
       <div className="flex items-center gap-1" aria-hidden>
@@ -39,7 +41,7 @@ export function ZoomControls({ level, levels, onZoom }: Props) {
           <motion.span
             key={i}
             className="h-2 rounded-full bg-accent"
-            animate={{ width: i === level ? 18 : 8, opacity: i <= level ? 1 : 0.3 }}
+            animate={{ width: i === level ? 18 : 8, opacity: i < minLevel ? 0.1 : i <= level ? 1 : 0.3 }}
             transition={{ type: "spring", stiffness: 500, damping: 30 }}
           />
         ))}

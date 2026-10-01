@@ -147,7 +147,7 @@ export default function App() {
   useEffect(() => save("padMouse", padMouse), [padMouse]);
   const { theme, setTheme, cycle: cycleTheme } = themes;
 
-  const [rows, setRows] = useState(() => Math.min(MAX_ROWS, Math.max(MIN_ROWS, load("rows", 2))));
+  const [zoomRows, setZoomRows] = useState(() => Math.min(MAX_ROWS, Math.max(MIN_ROWS, load("rows", 2))));
   const [board, setBoard] = useState<Board>(() =>
     migrateBoard(load("board.v2", null), load("board", null), load("order", null)),
   );
@@ -205,8 +205,9 @@ export default function App() {
   const [fullscreen, setFullscreenState] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
+  // Rangées réellement affichées : un petit écran (Steam Deck) en retire, sans changer le zoom choisi.
+  const [{ tile: tileSize, columns, rows, maxRows }, setGridMetricsEl] = useGridMetrics(zoomRows, MAX_ROWS, LABEL_HEIGHT, GAP);
   const labelHeight = rows <= 2 ? LABEL_HEIGHT : 0;
-  const [{ tile: tileSize, columns }, setGridMetricsEl] = useGridMetrics(rows, labelHeight, GAP);
   const [gridArea, setGridArea] = useState<HTMLElement | null>(null);
   const gridAreaRef = useCallback(
     (el: HTMLElement | null) => {
@@ -217,7 +218,7 @@ export default function App() {
   );
   useHorizontalWheel(gridArea);
 
-  useEffect(() => save("rows", rows), [rows]);
+  useEffect(() => save("rows", zoomRows), [zoomRows]);
   useEffect(() => save("board.v2", board), [board]);
   // La vue « Tout » a son propre curseur : il ne doit pas écraser celui du plateau.
   useEffect(() => {
@@ -773,14 +774,16 @@ export default function App() {
     [items, downloads, view, t, startNewFolder, enterFolder, removeFolder, launch, install, uninstall, controlDownload, tryOpen, moveOut, openApp, running, stopping, stopRunning],
   );
 
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  const rowsRef = useRef({ rows, maxRows });
+  rowsRef.current = { rows, maxRows };
   const changeZoom = useCallback((direction: 1 | -1) => {
-    // « + » agrandit les icônes, donc retire une rangée.
-    const next = Math.min(MAX_ROWS, Math.max(MIN_ROWS, rowsRef.current - direction));
-    if (next === rowsRef.current) return;
+    // « + » agrandit les icônes, donc retire une rangée. On part des rangées affichées, et un petit
+    // écran borne le dézoom.
+    const { rows: shown, maxRows: max } = rowsRef.current;
+    const next = Math.min(max, Math.max(MIN_ROWS, shown - direction));
+    if (next === shown) return;
     sound.zoom(direction);
-    setRows(next);
+    setZoomRows(next);
   }, []);
 
   /** Curseur libre, case par case, vides comprises (comme sur une console portable). */
@@ -864,7 +867,7 @@ export default function App() {
 
   const resetPrefs = useCallback(() => {
     setTheme(DEFAULT_THEME);
-    setRows(2);
+    setZoomRows(2);
     sound.setVolume(0.7);
     if (!sound.enabled) {
       sound.setEnabled(true);
@@ -1378,7 +1381,12 @@ export default function App() {
                 </>
               )}
             </div>
-            <ZoomControls level={MAX_ROWS - rows} levels={MAX_ROWS - MIN_ROWS + 1} onZoom={changeZoom} />
+            <ZoomControls
+              level={MAX_ROWS - rows}
+              levels={MAX_ROWS - MIN_ROWS + 1}
+              minLevel={MAX_ROWS - maxRows}
+              onZoom={changeZoom}
+            />
           </div>
 
           <div
